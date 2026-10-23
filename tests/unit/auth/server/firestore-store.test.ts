@@ -110,6 +110,8 @@ describe('createFirestoreStore', () => {
 
   it.each([
     'file:///tmp/oauth.json',
+    'https://demo-zendesk-mcp/(default)/oauth',
+    'firestore:///(default)/oauth',
     'firestore://demo-zendesk-mcp/(default)/bad.collection',
     'firestore://demo-zendesk-mcp/(default)/oauth?raw=true',
     'firestore://demo-zendesk-mcp/(default)/oauth/extra',
@@ -130,6 +132,7 @@ describe('createFirestoreStore', () => {
 
   it('selects REST for production and gRPC for the emulator, and closes the client', async () => {
     const production = createFirestoreStore(URI);
+    expect(production.shared).toBe(true);
     expect(fakeFirestore.options.at(-1)).toEqual({
       projectId: 'demo-zendesk-mcp',
       databaseId: '(default)',

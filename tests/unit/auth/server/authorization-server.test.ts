@@ -12,6 +12,7 @@ import {
 } from '../../../../src/auth/server/authorization-server';
 import { createMemoryStore, type RecordStore } from '../../../../src/auth/server/file-store';
 import { deriveKeyRing } from '../../../../src/auth/server/keys';
+import { createSealedCollection } from '../../../../src/auth/server/store';
 import type { Config } from '../../../../src/config';
 import type { Logger } from '../../../../src/utils/logger';
 import { makeConfig } from '../../../integration/harness';
@@ -25,6 +26,7 @@ import {
 } from '../../../integration/oauth-client';
 import { createZendeskOAuthMock, localServerPassthrough } from '../../../msw-handlers';
 import { mswServer } from '../../../setup';
+import { createTransactionalRecordStore } from './transactional-record-store';
 
 const recordingLogger = () => {
   const events: [string, string, unknown][] = [];
@@ -108,6 +110,14 @@ const faultyStore = () => {
 describe('createAuthorizationServer', () => {
   it('hands the MCP endpoint the requestState key of the newest secret', () => {
     expect(build(createMemoryStore()).requestStateKey).toEqual(RING[0].requestState);
+  });
+
+  it('closes its persistent store', async () => {
+    const close = vi.fn(async () => undefined);
+    const as = build({ ...createMemoryStore(), close });
+
+    await as.close?.();
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('names the resource after the issuer', () => {
@@ -289,6 +299,30 @@ describe('createAuthorizationServer', () => {
       expect(lifetime).toBeLessThanOrEqual(3600);
     });
 
+    it('uses shared storage for the OAuth flow and verifies access after restart', async () => {
+      const { store } = createTransactionalRecordStore();
+      const as = await serve(store);
+      const { tokens } = await signInWithDcr(base);
+      const bearer = tokens.body.access_token ?? '';
+      const grantId = (await as.verifyAccessToken(bearer))?.grantId ?? '';
+      expect(grantId).not.toBe('');
+
+      const restarted = build(store, undefined, base);
+      expect(await restarted.verifyAccessToken(bearer)).toMatchObject({ grantId });
+
+      const zendeskTokens = createSealedCollection<{ accessToken: string }>(
+        store,
+        'ZendeskTokens',
+        RING,
+      );
+      await zendeskTokens.delete(grantId);
+      expect(await restarted.verifyAccessToken(bearer)).toBeUndefined();
+
+      await zendeskTokens.set(grantId, { accessToken: 'persisted' });
+      await createSealedCollection<boolean>(store, 'Revoked', RING).set(grantId, true);
+      expect(await restarted.verifyAccessToken(bearer)).toBeUndefined();
+    });
+
     it('keeps its records in named collections of the persistent store', async () => {
       const store = faultyStore();
       await serve(store.persistent);
@@ -456,6 +490,35 @@ describe('prepareAuthorizationServer', () => {
     } finally {
       vi.unstubAllEnvs();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('requires an explicit master secret for a Firestore store', async () => {
+    const config = makeConfig({
+      transport: 'http',
+      oauthStore: 'firestore://demo-zendesk-mcp/(default)/oauth',
+      oauthMasterSecret: undefined,
+      oauthMasterSecretFile: undefined,
+    });
+    await expect(prepareAuthorizationServer(config)).rejects.toThrow(
+      'Firestore requires an explicitly configured OAuth master secret.',
+    );
+  });
+
+  it('opens and closes the configured Firestore store without contacting a live service', async () => {
+    vi.stubEnv('FIRESTORE_EMULATOR_HOST', '127.0.0.1:8085');
+    vi.stubEnv('NODE_ENV', 'test');
+    try {
+      const config = makeConfig({
+        transport: 'http',
+        oauthStore: 'firestore://demo-zendesk-mcp/(default)/oauth',
+        oauthMasterSecret: Buffer.alloc(32, 8).toString('base64'),
+      });
+      const buildServer = await prepareAuthorizationServer(config);
+      const as = buildServer('https://mcp.example.com', () => false);
+      await as.close?.();
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

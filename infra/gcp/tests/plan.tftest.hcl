@@ -27,8 +27,30 @@ run "secure_defaults" {
     error_message = "Do not cache OAuth traffic or log callback URLs."
   }
   assert {
-    condition     = strcontains(google_logging_project_exclusion.oauth_requests.filter, "httpRequest.requestUrl=~\"^https?://[^/]+/(auth|oauth/callback)[?]\"")
+    condition     = strcontains(google_logging_project_exclusion.oauth_requests.filter, "httpRequest.requestUrl=~\"^https?://[^/]+/(auth|oauth/callback|interaction/[^/?]+/callback(/[^?]*)?)[?]\"")
     error_message = "Only OAuth authorization and callback URLs should be excluded from request logs."
+  }
+  assert {
+    condition = alltrue([
+      for url in [
+        "https://mcp.example.com/auth?client_id=fixture",
+        "https://mcp.example.com/oauth/callback?code=fixture&state=fixture",
+        "https://mcp.example.com/interaction/fixture-id/callback?code=fixture",
+        "https://mcp.example.com/interaction/fixture-id/callback/?code=fixture",
+        "https://mcp.example.com/interaction/fixture-id/callback/extra?code=fixture",
+      ] : can(regex(regex("httpRequest.requestUrl=~\"([^\"]+)\"", google_logging_project_exclusion.oauth_requests.filter)[0], url))
+    ])
+    error_message = "Every OAuth hop carrying a query-string code must be excluded, including the internal interaction callback."
+  }
+  assert {
+    condition = alltrue([
+      for url in [
+        "https://mcp.example.com/healthz",
+        "https://mcp.example.com/mcp?fixture=1",
+        "https://mcp.example.com/interaction/fixture-id/confirm?fixture=1",
+      ] : !can(regex(regex("httpRequest.requestUrl=~\"([^\"]+)\"", google_logging_project_exclusion.oauth_requests.filter)[0], url))
+    ])
+    error_message = "Keep ordinary request logs available."
   }
   assert {
     condition     = output.zendesk_callback_url == "https://mcp.example.com/oauth/callback"

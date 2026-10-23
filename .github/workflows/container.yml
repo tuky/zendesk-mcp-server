@@ -1,7 +1,7 @@
 name: Container
 
-# Builds and smoke-tests the image on a PR only when something that shapes it
-# changes; a source-only change is already covered by the bundle suite in ci.yml.
+# Exercise the shipped HTTP and Firestore paths whenever source, packaging
+# or their smoke-test fixtures change.
 on:
   pull_request:
     paths:
@@ -13,6 +13,9 @@ on:
       - tsdown.config.ts
       - scripts/bundle-manifest.mjs
       - scripts/container-smoke.mjs
+      - scripts/container-firestore-smoke.mjs
+      - compose.firestore.yml
+      - src/**
       - .github/workflows/container.yml
       - .github/actions/publish-image/**
 
@@ -42,3 +45,5 @@ jobs:
           cache-to: type=gha,mode=max
 
       - run: node scripts/container-smoke.mjs zendesk-mcp-server:candidate
+
+      - run: node scripts/container-firestore-smoke.mjs zendesk-mcp-server:candidate

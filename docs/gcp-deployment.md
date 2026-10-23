@@ -94,7 +94,8 @@ Health checks confirm the process answers HTTP, not Zendesk authorization or
 database availability. Monitor Cloud Run errors/latency, Firestore errors and
 certificate status. Do not log OAuth query strings, bearer tokens or ticket
 content. The Terraform profile disables load-balancer request logs and excludes
-Cloud Run request URLs with query strings on `/auth` and `/oauth/callback` from
+Cloud Run request URLs with query strings on `/auth`, `/oauth/callback` and
+`/interaction/<id>/callback` (including accepted trailing-path variants) from
 the default log sink; other request logs remain available. Review any
 organization-level sinks separately.
 

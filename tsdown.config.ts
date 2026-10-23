@@ -7,6 +7,8 @@ export default defineConfig({
   format: ['esm'],
   target: 'node22',
   platform: 'node',
+  // Firestore's bundled CommonJS dependencies reference __dirname at load time.
+  shims: true,
   outDir: 'dist',
   clean: true,
   // Nothing debugs the bundle: dev runs tsx on src/, and no code path reads `.stack`.

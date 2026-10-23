@@ -95,6 +95,9 @@ jobs:
       - run: node scripts/container-smoke.mjs "$IMAGE"
         env:
           IMAGE: ${{ steps.image.outputs.tag }}
+      - run: node scripts/container-firestore-smoke.mjs "$IMAGE"
+        env:
+          IMAGE: ${{ steps.image.outputs.tag }}
       - name: Publish reviewed tag image and source package
         env:
           IMAGE: ${{ steps.image.outputs.tag }}

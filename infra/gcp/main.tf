@@ -202,7 +202,7 @@ resource "google_logging_project_exclusion" "oauth_requests" {
   project     = var.project_id
   name        = "${var.name}-oauth-request-urls"
   description = "Exclude OAuth authorization and callback URLs from the default sink."
-  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.name}\" AND log_id(\"run.googleapis.com/requests\") AND httpRequest.requestUrl=~\"^https?://[^/]+/(auth|oauth/callback)[?]\""
+  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.name}\" AND log_id(\"run.googleapis.com/requests\") AND httpRequest.requestUrl=~\"^https?://[^/]+/(auth|oauth/callback|interaction/[^/?]+/callback(/[^?]*)?)[?]\""
 }
 resource "google_compute_url_map" "redirect" {
   name = "${var.name}-redirect"

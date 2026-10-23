@@ -15,6 +15,9 @@ pnpm typecheck
 pnpm test
 pnpm test:coverage
 pnpm test:bundle
+docker build -t zendesk-mcp:staging-check .
+node scripts/container-smoke.mjs zendesk-mcp:staging-check
+node scripts/container-firestore-smoke.mjs zendesk-mcp:staging-check
 terraform -chdir=infra/gcp init -backend=false
 terraform -chdir=infra/gcp validate
 terraform -chdir=infra/gcp test
@@ -24,6 +27,12 @@ docker compose -f compose.firestore.yml down
 Tests require a loopback Firestore emulator and a demo project. Do not point them
 at production. Emulator data is disposable. The emulator is prohibited when
 NODE_ENV=production.
+
+The container Firestore smoke test starts and cleans up its own emulator and
+network. It verifies encrypted database writes and reads after container
+replacement using the shipped bundle, without mounted source or dependencies.
+It uses NODE_ENV=test to permit the emulator; real ADC/IAM and the production
+REST transport still need the staging checks below.
 
 An independent reviewer should inspect encryption and TTL, grant replay
 invalidation, concurrent refresh, process replacement, rollback, IAM scope and

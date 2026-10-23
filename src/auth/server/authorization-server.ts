@@ -13,6 +13,7 @@ import { createInteractionRoutes } from './interactions';
 import { deriveKeyRing, type KeyRing } from './keys';
 import { ACCESS_TOKEN_TTL_S, buildProvider } from './provider';
 import { resolveMasterSecret } from './secret';
+import { createSharedZendeskGrants } from './shared-grants';
 import { createAdapterFactory, createSealedCollection, openStore } from './store';
 import { type Fetch, trustedClientSet } from './trusted-clients';
 import type { ZendeskTokenSet } from './upstream';
@@ -39,6 +40,7 @@ export interface ProtectedResourceMetadata {
 }
 
 export interface AuthorizationServer {
+  close?(): Promise<void>;
   readonly issuer: string;
   readonly resource: string;
   readonly protectedResourceMetadata: ProtectedResourceMetadata;
@@ -103,13 +105,15 @@ export const createAuthorizationServer = (
   const resource = `${issuer}/mcp`;
   const upstream = { subdomain: config.subdomain, clientId: config.oauthClientId };
 
-  const zendeskGrants = createZendeskGrants({
-    records: createSealedCollection<ZendeskTokenSet>(persistent, 'ZendeskTokens', ring),
-    upstream,
-    logger,
-    // A token we mint carries the Zendesk token for its whole life.
-    refreshMarginMs: ACCESS_TOKEN_TTL_S * 1000 + ZENDESK_REFRESH_MARGIN_MS,
-  });
+  const zendeskGrants = persistent.shared
+    ? createSharedZendeskGrants({ store: persistent, ring, upstream })
+    : createZendeskGrants({
+        records: createSealedCollection<ZendeskTokenSet>(persistent, 'ZendeskTokens', ring),
+        upstream,
+        logger,
+        // A token we mint carries the Zendesk token for its whole life.
+        refreshMarginMs: ACCESS_TOKEN_TTL_S * 1000 + ZENDESK_REFRESH_MARGIN_MS,
+      });
 
   // A grant the store failed to delete is gone from this process, not from disk:
   // a restart before the store's next successful write would bring it back.
@@ -169,6 +173,12 @@ export const createAuthorizationServer = (
     consentMemory: createSealedCollection<true>(persistent, 'Consent', ring),
     trustedClients: trustedClientSet(config.oauthTrustedClients, config.defaultTrustedClients),
     logger,
+    ...(persistent.shared
+      ? {
+          pendingVerifiers: createSealedCollection<string>(persistent, 'PendingVerifier', ring),
+          pendingTokens: createSealedCollection<ZendeskTokenSet>(persistent, 'PendingToken', ring),
+        }
+      : {}),
   });
   const callback = provider.callback();
 
@@ -184,6 +194,9 @@ export const createAuthorizationServer = (
   };
 
   return {
+    close: async () => {
+      await persistent.close?.();
+    },
     issuer,
     resource,
     requestStateKey: ring[0].requestState,
@@ -208,7 +221,20 @@ export const createAuthorizationServer = (
     },
     verifyAccessToken: async (bearer) => {
       const verified = await readAccessToken(bearer).catch(() => undefined);
-      return verified && !revokedGrants.get(verified.grantId) ? verified : undefined;
+      if (!verified || revokedGrants.get(verified.grantId)) return undefined;
+      if (persistent.shared) {
+        if (
+          await createSealedCollection<boolean>(persistent, 'Revoked', ring).get(verified.grantId)
+        )
+          return undefined;
+        if (
+          !(await createSealedCollection<ZendeskTokenSet>(persistent, 'ZendeskTokens', ring).get(
+            verified.grantId,
+          ))
+        )
+          return undefined;
+      }
+      return verified;
     },
     // Never rejects: it runs fire-and-forget from a tool call's 401, where an
     // unhandled rejection would take the process down. The in-memory denial
@@ -247,6 +273,13 @@ export const prepareAuthorizationServer = async (
 > => {
   const dir = configDir();
   const storeUri = config.oauthStore ?? pathToFileURL(join(dir, 'oauth-store.json')).href;
+  if (
+    storeUri.startsWith('firestore:') &&
+    !config.oauthMasterSecret &&
+    !config.oauthMasterSecretFile
+  ) {
+    throw new Error('Firestore requires an explicitly configured OAuth master secret.');
+  }
   const secret = resolveMasterSecret(
     {
       value: config.oauthMasterSecret,
@@ -257,7 +290,9 @@ export const prepareAuthorizationServer = async (
     logger,
   );
   const ring = deriveKeyRing(secret.value);
-  const persistent = openStore(storeUri);
+  const persistent = storeUri.startsWith('firestore:')
+    ? (await import('./firestore-store')).createFirestoreStore(storeUri)
+    : openStore(storeUri);
   return (issuer, isAllowedOrigin, overrides = {}) =>
     createAuthorizationServer({
       config,

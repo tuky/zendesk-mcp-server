@@ -1,7 +1,7 @@
 {
-  "name": "@fruggr/zendesk-mcp-server",
+  "name": "@tuky/zendesk-mcp-server",
   "version": "3.5.0",
-  "mcpName": "io.github.fruggr/zendesk-mcp-server",
+  "mcpName": "io.github.tuky/zendesk-mcp-server",
   "description": "Deep Zendesk MCP server for your AI assistant: search, draft, update and translate Help Center articles and manage Support tickets end to end — comments, triage and image attachments.",
   "type": "module",
   "main": "dist/index.js",
@@ -32,7 +32,8 @@
     "test:mutation:summary": "node scripts/mutation-scope.mjs summary",
     "test:smoke": "pnpm build && node scripts/smoke-test.mjs",
     "test:bundle": "pnpm build && vitest run --config vitest.bundle.config.ts",
-    "mcp:live": "tsx scripts/mcp-live.ts"
+    "mcp:live": "tsx scripts/mcp-live.ts",
+    "test:firestore": "vitest run --config vitest.firestore.config.ts"
   },
   "keywords": [
     "mcp",
@@ -60,12 +61,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fruggr/zendesk-mcp-server.git"
+    "url": "git+https://github.com/tuky/zendesk-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/fruggr/zendesk-mcp-server/issues"
+    "url": "https://github.com/tuky/zendesk-mcp-server/issues"
   },
-  "homepage": "https://github.com/fruggr/zendesk-mcp-server#readme",
+  "homepage": "https://github.com/tuky/zendesk-mcp-server#readme",
   "publishConfig": {
     "access": "public"
   },
@@ -75,6 +76,7 @@
   "packageManager": "pnpm@12.14.0+sha512.c18ba6d87993d3d164cb5e8948f32b2c06ee854487e06cd8d86781342fb3e5bb4634367034711e86802baa9c37bea906ce1929ad08d70884c97d801df13389a6",
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
+    "@google-cloud/firestore": "^9.3.1",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
@@ -118,5 +120,6 @@
     "unified": "11.0.5",
     "vitest": "^5.0.0",
     "zod": "4.6.7"
-  }
+  },
+  "private": true
 }

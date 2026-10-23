@@ -1,0 +1,11 @@
+project_id              = "your-project"
+region                  = "europe-west3"
+firestore_location      = "europe-west3"
+hostname                = "zendesk-mcp.example.com"
+zendesk_subdomain       = "your-zendesk"
+zendesk_oauth_client_id = "your-public-oauth-client"
+# Obtain the digest from the fork's release, not an upstream image.
+image = "ghcr.io/tuky/zendesk-mcp-server@sha256:REPLACE_WITH_RELEASE_DIGEST"
+# Use a dedicated project/database. Named databases may be outside free quota.
+database_id             = "zendesk-mcp"
+read_only               = true

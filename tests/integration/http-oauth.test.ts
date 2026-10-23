@@ -995,7 +995,7 @@ describe('HTTP authorization server', () => {
       process.env['XDG_CONFIG_HOME'] = dir;
       try {
         await start({ oauthMasterSecret: undefined, oauthStore: fileStore() });
-        const secretFile = join(dir, 'fruggr', 'zendesk-mcp-server', 'oauth-master-secret');
+        const secretFile = join(dir, 'tuky', 'zendesk-mcp-server', 'oauth-master-secret');
         expect(existsSync(secretFile)).toBe(true);
         const { tokens } = await signInWithDcr(base);
         await restart({ oauthMasterSecret: undefined, oauthStore: fileStore() });

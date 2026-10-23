@@ -15,9 +15,11 @@ import {
   createAdapterFactory,
   createKeyLock,
   createSealedCollection,
+  createSharedAdapterFactory,
   openStore,
   PERSISTENT_MODELS,
 } from '../../../../src/auth/server/store';
+import { createTransactionalRecordStore } from './transactional-record-store';
 
 const OLD = Buffer.alloc(32, 1).toString('base64');
 const NEW = Buffer.alloc(32, 2).toString('base64');
@@ -298,6 +300,97 @@ describe('createAdapterFactory, key layout and expiry', () => {
     await stalled;
     expect(await adapter.find('a')).toBeUndefined();
     expect(await adapter.find('b')).toBeUndefined();
+  });
+});
+
+describe('createSharedAdapterFactory', () => {
+  const setup = () => {
+    const { store, entries } = createTransactionalRecordStore();
+    const ring = deriveKeyRing(OLD);
+    const adapterFor = (name: string) => createAdapterFactory({ persistent: store }, ring)(name);
+    return { store, entries, ring, adapterFor };
+  };
+
+  it('requires a transactional backend', () => {
+    expect(() => createSharedAdapterFactory(createMemoryStore(), deriveKeyRing(OLD))).toThrow(
+      'Shared OAuth storage requires transactions.',
+    );
+  });
+
+  it('stores payloads and uid indexes transactionally in the shared backend', async () => {
+    const { store, adapterFor } = setup();
+    const adapter = adapterFor('Client');
+    await adapter.upsert('client', { client_id: 'client', uid: 'stable-uid' }, 60);
+
+    expect(await adapter.find('client')).toEqual({ client_id: 'client', uid: 'stable-uid' });
+    expect(await adapter.findByUid('stable-uid')).toEqual({
+      client_id: 'client',
+      uid: 'stable-uid',
+    });
+    expect(await adapter.findByUid('missing')).toBeUndefined();
+    expect(await adapter.findByUserCode('unused')).toBeUndefined();
+    expect(store.shared).toBe(true);
+  });
+
+  it('commits a revocation tombstone before rejecting a replay', async () => {
+    const { store, ring, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    await adapter.upsert('refresh-id', { grantId: 'grant-id', exp: futureExp(60) }, 60);
+    await adapter.consume('refresh-id');
+
+    await expect(adapter.consume('refresh-id')).rejects.toHaveProperty('name', 'InvalidGrant');
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      true,
+    );
+    expect(await adapter.find('refresh-id')).toBeUndefined();
+  });
+
+  it('rejects writes for revoked grants and hides their existing records', async () => {
+    const { store, ring, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    await adapter.upsert('refresh-id', { grantId: 'grant-id' });
+    await adapter.revokeByGrantId('grant-id');
+
+    expect(await adapter.find('refresh-id')).toBeUndefined();
+    await expect(adapter.upsert('another-refresh', { grantId: 'grant-id' })).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      true,
+    );
+  });
+
+  it('destroys a grant by tombstoning it and removes the grant record', async () => {
+    const { store, ring, adapterFor } = setup();
+    const grant = adapterFor('Grant');
+    await grant.upsert('grant-id', { accountId: 'account' });
+    await grant.destroy('grant-id');
+
+    expect(await grant.find('grant-id')).toBeUndefined();
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      true,
+    );
+    await expect(grant.upsert('grant-id', { accountId: 'account' })).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+  });
+
+  it('reseals shared records under the current key without losing expiry', async () => {
+    const { store } = setup();
+    const previous = deriveKeyRing(OLD);
+    const rotating = deriveKeyRing(`${NEW},${OLD}`);
+    const original = createSealedCollection<{ id: string }>(store, 'Persistent', previous);
+    const duringRotation = createSealedCollection<{ id: string }>(store, 'Persistent', rotating);
+    await original.set('record', { id: 'record' }, 60);
+
+    expect(await duringRotation.get('record')).toEqual({ id: 'record' });
+    expect(
+      await createSealedCollection<{ id: string }>(store, 'Persistent', deriveKeyRing(NEW)).get(
+        'record',
+      ),
+    ).toEqual({ id: 'record' });
   });
 });
 

@@ -43,7 +43,7 @@ const STALE_MAX_AGE_S = 60;
 
 export const CIMD_FETCH_HINT =
   'A client document, or a URL it names, could not be fetched: the client cannot sign in or ' +
-  'refresh unless a last good copy is served. See https://github.com/fruggr/' +
+  'refresh unless a last good copy is served. See https://github.com/tuky/' +
   'zendesk-mcp-server/blob/main/docs/troubleshooting.md#http-the-log-shows-oauth_client_fetch_failed';
 
 // Blocked, rate-limited or down: the document still exists. A 404, a 410 or a

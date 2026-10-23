@@ -1,0 +1,44 @@
+name: Firestore and Terraform
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  shared-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: docker compose -f compose.firestore.yml up -d
+      - name: Wait for emulator
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8085 >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - run: pnpm test:firestore
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8085
+      - run: docker compose -f compose.firestore.yml down
+        if: always()
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+      - run: terraform -chdir=infra/gcp fmt -check -recursive
+      - run: terraform -chdir=infra/gcp init -backend=false -lockfile=readonly
+      - run: terraform -chdir=infra/gcp validate
+      - run: terraform -chdir=infra/gcp test

@@ -11,7 +11,7 @@ export default defineConfig({
     // sources.
     include: ['tests/**/*.test.ts'],
     // Runs the built bundle: `pnpm test:bundle` (vitest.bundle.config.ts).
-    exclude: ['tests/bundle/**'],
+    exclude: ['tests/bundle/**', 'tests/firestore/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html', 'lcov', 'json-summary'],

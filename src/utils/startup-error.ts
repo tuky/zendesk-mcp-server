@@ -4,7 +4,7 @@
  * the docs that explains it: a stack trace would bury that line. ASCII only, like
  * every other auth-path message. Links point at `main`, where the docs ship.
  */
-const DOCS_BASE = 'https://github.com/fruggr/zendesk-mcp-server/blob/main/docs/';
+const DOCS_BASE = 'https://github.com/tuky/zendesk-mcp-server/blob/main/docs/';
 
 /** Every docs section a startup error links to; a unit test checks each anchor exists. */
 export const STARTUP_DOCS = {

@@ -5,6 +5,7 @@ allowBuilds:
   # with the build script blocked. Kept false deliberately.
   lefthook: false
   msw: true
+  protobufjs: false
 
 # 5 days. This is the gate that governs transitive dependencies: Renovate does
 # not manage them, so a vulnerable indirect package is only ever bumped by the

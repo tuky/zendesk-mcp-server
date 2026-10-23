@@ -48,7 +48,7 @@ vi.mock('node:fs', () => ({
 }));
 
 // The package name the config dir segments are derived from.
-let packageName = '@fruggr/zendesk-mcp-server';
+let packageName = '@tuky/zendesk-mcp-server';
 vi.mock('../../../src/utils/package-info', () => ({
   readPackageInfo: () => ({ name: packageName, version: '0.0.0' }),
 }));
@@ -73,7 +73,7 @@ describe('token-persistence', () => {
     chmodCalls.length = 0;
     failWrite = false;
     failDirChmod = false;
-    packageName = '@fruggr/zendesk-mcp-server';
+    packageName = '@tuky/zendesk-mcp-server';
     delete process.env['OAUTH_TOKEN_FILE'];
     delete process.env['XDG_CONFIG_HOME'];
     delete process.env['APPDATA'];
@@ -146,10 +146,10 @@ describe('token-persistence', () => {
     // joiner -- silently strands every installed user's token and costs them a
     // sign-in, so it must not be possible to make one without this failing.
     expect(resolveTokenPath(KEY)).toMatchInlineSnapshot(
-      `"/home/u/.config/fruggr/zendesk-mcp-server/acme--acme_zendesk--read_write--813d5849.json"`,
+      `"/home/u/.config/tuky/zendesk-mcp-server/acme--acme_zendesk--read_write--813d5849.json"`,
     );
     expect(resolveTokenPath(keyWith({ scope: 'read' }))).toMatchInlineSnapshot(
-      `"/home/u/.config/fruggr/zendesk-mcp-server/acme--acme_zendesk--read--ab106f2c.json"`,
+      `"/home/u/.config/tuky/zendesk-mcp-server/acme--acme_zendesk--read--ab106f2c.json"`,
     );
   });
 
@@ -245,7 +245,7 @@ describe('token-persistence', () => {
     process.env['APPDATA'] = 'C:\\Users\\u\\AppData\\Roaming';
     const { resolveTokenPath } = await importFresh();
     const path = resolveTokenPath(KEY);
-    expect(path).toContain('fruggr');
+    expect(path).toContain('tuky');
     expect(path).toContain('zendesk-mcp-server');
     expect(path).toMatch(/acme--acme_zendesk--read_write--[0-9a-f]{8}\.json$/);
   });
@@ -254,18 +254,16 @@ describe('token-persistence', () => {
     setPlatform('win32');
     process.env['APPDATA'] = 'C:\\Users\\u\\AppData\\Roaming';
     const { configDir } = await importFresh();
-    expect(configDir()).toBe(
-      join('C:\\Users\\u\\AppData\\Roaming', 'fruggr', 'zendesk-mcp-server'),
-    );
+    expect(configDir()).toBe(join('C:\\Users\\u\\AppData\\Roaming', 'tuky', 'zendesk-mcp-server'));
 
     delete process.env['APPDATA'];
-    expect(configDir()).toBe(join(homedir(), 'AppData', 'Roaming', 'fruggr', 'zendesk-mcp-server'));
+    expect(configDir()).toBe(join(homedir(), 'AppData', 'Roaming', 'tuky', 'zendesk-mcp-server'));
   });
 
   it('falls back to ~/.config when XDG_CONFIG_HOME is unset', async () => {
     setPlatform('linux');
     const { configDir } = await importFresh();
-    expect(configDir()).toBe(join(homedir(), '.config', 'fruggr', 'zendesk-mcp-server'));
+    expect(configDir()).toBe(join(homedir(), '.config', 'tuky', 'zendesk-mcp-server'));
   });
 
   it('splits only a leading npm scope into two dir segments', async () => {

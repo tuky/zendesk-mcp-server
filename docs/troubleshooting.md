@@ -96,8 +96,8 @@ The OAuth token is persisted to an owner-only (`0600`) file in your OS config
 dir and reused across restarts, so this shouldn't happen. Files are named
 `<subdomain>--<oauth-client>--<scope>--<digest>.json`, one per credential:
 
-- `%APPDATA%\fruggr\zendesk-mcp-server\` on Windows;
-- `${XDG_CONFIG_HOME:-$HOME/.config}/fruggr/zendesk-mcp-server/` elsewhere.
+- `%APPDATA%\tuky\zendesk-mcp-server\` on Windows;
+- `${XDG_CONFIG_HOME:-$HOME/.config}/tuky/zendesk-mcp-server/` elsewhere.
 
 If the Zendesk OAuth client has token expiration enabled, the stored refresh
 token renews access silently, in two ways. It refreshes **proactively**, before

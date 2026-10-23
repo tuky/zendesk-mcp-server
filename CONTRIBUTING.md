@@ -1,13 +1,9 @@
 # Contributing
 
-[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Ffruggr%2Fzendesk-mcp-server%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/fruggr/zendesk-mcp-server/main)
-
-Thanks for considering a contribution to `@fruggr/zendesk-mcp-server`. See the
-[README](README.md) for what the project does and how to run it.
-
-The badge is `main`'s mutation score; it links to the browsable report, where
-the survivors are listed per file. That report is the fastest way to find a test
-worth writing — see [the mutation gate](#submission-quality-bar) before you push.
+Thanks for considering a contribution to this fork of Fruggr's
+`zendesk-mcp-server`. The fork is maintained at `tuky/zendesk-mcp-server`; its
+package is private and has no npm release. See the [README](README.md) for the
+upstream and fork deployment paths.
 
 ## Review philosophy
 
@@ -16,21 +12,9 @@ assistance (Claude Code) to write code. **AI-assisted contributions are
 welcome and explicitly accepted**, on one condition: every submitted change
 has been read line by line and is owned by a human author who can defend it.
 
-Every PR goes through at least three automated review passes:
-
-1. **Author-side review**, run locally before push. The author runs Claude
-   Code on the diff and addresses anything found.
-2. **CodeRabbit** in CI, which posts a high-level summary and inline review
-   comments on the PR.
-3. **Greptile**, which posts a confidence score and prioritised findings.
-
-Both bots are pointed at the repository's own rules rather than generic ones:
-CodeRabbit auto-detects `AGENTS.md` as a code guideline, Greptile is handed it
-through `.greptile/files.json`. Review emphasis that neither would infer lives
-in `.coderabbit.yaml` and `.greptile/config.json`.
-
-Final responsibility for merging belongs to the human author. Tooling catches
-the mechanical issues; understanding the change is non-negotiable.
+Every PR needs an author-side review and an independent code review. Automated
+review applications may add findings when enabled, but are not a substitute for
+reading the diff. Final responsibility for merging belongs to the human author.
 
 External contributions follow the same standard.
 
@@ -48,10 +32,9 @@ Promotional content is removed; the contribution itself is judged on its merits.
 | Node | 24 | [`.nvmrc`](.nvmrc), read by `nvm`, `fnm`, `mise`, `asdf`, `volta` |
 | pnpm | 12 | [`package.json#packageManager`](package.json) (pinned with a corepack integrity hash) |
 
-The toolchain (Node 24 + pnpm 12) is used to build, lint, type-check and
-test the project. The **published package** still runs on Node 22+ (see
-`engines.node`); a dedicated CI job installs the packed tarball on Node 22
-and runs the smoke test to keep that promise honest.
+The toolchain (Node 24 + pnpm 12) is used to build, lint, type-check and test
+the project. The package targets Node 22+ (see `engines.node`); CI installs
+the packed tarball on Node 22 and runs the smoke test to verify that target.
 
 The pnpm pin names one exact patch version, and
 [`docs/decisions/pnpm-12-native.md`](docs/decisions/pnpm-12-native.md) says why:
@@ -60,7 +43,7 @@ differ from one patch release to the next.
 
 ```bash
 # Clone, install, build
-git clone https://github.com/fruggr/zendesk-mcp-server.git
+git clone https://github.com/tuky/zendesk-mcp-server.git
 cd zendesk-mcp-server && pnpm install && pnpm build
 node dist/index.js <your-subdomain>
 
@@ -74,11 +57,14 @@ pnpm dev -- <your-subdomain> --transport http --port 3000 --public-url http://lo
 pnpm build && pnpm typecheck && pnpm check && pnpm test
 ```
 
-To test a PR branch without publishing to npm (the `prepare` script builds on install):
+The fork is not published to npm. To test a PR branch, fetch it from the fork and
+run the normal local checks:
 
 ```bash
-npx -y github:fruggr/zendesk-mcp-server <your-subdomain>
-npx -y github:fruggr/zendesk-mcp-server#my-feature-branch <your-subdomain>
+git fetch origin my-feature-branch
+git switch --detach FETCH_HEAD
+pnpm install --frozen-lockfile
+pnpm check && pnpm typecheck && pnpm test
 ```
 
 Architecture, code style, submission bar and release workflow live in
@@ -102,14 +88,15 @@ happened here. Before writing any code for an issue:
 
 ## Opening a pull request
 
-1. Fork the repository.
-2. Create a feature branch from `main`.
+1. For an external contribution, fork this repository; otherwise work from its
+   `main` branch.
+2. Create a feature branch from `main`, following the naming guidance in
+   [`AGENTS.md`](AGENTS.md).
 3. Write code in small, reviewable commits.
-4. Use [Conventional Commits](https://www.conventionalcommits.org/). They
-   directly drive the next version bump via semantic-release (see
-   [Releases](#releases) for which prefixes trigger which bump).
+4. Use [Conventional Commits](https://www.conventionalcommits.org/) for clear
+   history; commit messages do not publish or version a release.
 5. Make the author checklist below pass locally.
-6. Push your branch and open a PR against `main`.
+6. Push your branch and open a PR against this fork's `main`.
 
 If the PR resolves an issue, link it in the PR **description** with a GitHub
 closing keyword so the issue closes automatically when the PR merges to `main`:
@@ -140,7 +127,7 @@ The same checklist appears on the
 - [ ] `pnpm typecheck` passes.
 - [ ] `pnpm build` produces a clean bundle.
 - [ ] You have read the diff yourself, line by line.
-- [ ] You ran a Claude Code review on the diff (see below).
+- [ ] You ran an independent author-side AI review on the diff.
 - [ ] Documentation is updated if behavior or the tool surface changed
       (see [Documentation maintenance](AGENTS.md#documentation-maintenance)
       in `AGENTS.md`).
@@ -186,8 +173,8 @@ The same checklist appears on the
 
 ## Author-side AI review
 
-Before pushing, run a Claude Code pass on the diff. Suggested prompt, to copy
-into your `claude` CLI from the branch:
+Before pushing, run an AI review on the diff using a separate review context.
+Suggested prompt:
 
 > Read the diff between this branch and `main`. Look for: potential bugs,
 > uncovered edge cases, inconsistencies with the project architecture,
@@ -213,9 +200,9 @@ assumption that everything below has already been done.
 3. **Look for what you didn't write.** Missing zod validation on an input,
    missing test for an edge case, missing README/AGENTS update on a renamed
    tool, missing error path. Reviewers find these, so find them first.
-4. **Self-review prompt.** Run the [Author-side AI review](#author-side-ai-review)
-   pass on the diff against `main`. Address findings or document why you're
-   skipping them in the PR description.
+4. **Independent review.** Run an author-side AI review on the diff against
+   `main`, then obtain a review from someone or a session that did not write the
+   code. Address findings or document why you're deferring them.
 5. **Run the full local gate**: `pnpm check`, `pnpm typecheck`, `pnpm test`,
    `pnpm build`. A green CI on a non-green local run means a flaky check, not a
    free pass. If your PR changes anything under `src/`, also run the mutation
@@ -240,41 +227,23 @@ assumption that everything below has already been done.
    nothing it mutates, so a docs-only PR is unaffected — the canary step in the
    same job does not skip, because a PR the gate cannot judge is exactly what it
    is there for.
-2. CodeRabbit and Greptile post their summaries and review comments on the diff.
+2. Automated review applications may post summaries and inline findings when
+   enabled for the repository.
 3. The maintainer reviews everything.
 4. You address review findings.
 5. Merge.
 
 ## Merge policy
 
-- **Squash merge** is the default. The squashed commit message must follow
-  Conventional Commits, since that's what semantic-release reads to compute the
-  next version.
+- **Squash merge** is the default. Use a Conventional Commit title for clear
+  history; it does not trigger a release.
 - No force-push to `main`.
-- The maintainer can self-merge, given that two automated review passes
-  (author-side Claude + CodeRabbit) and the CI gate have run cleanly. This
-  policy will tighten (require a human reviewer on PRs to `main`) once the
-  project has its first regular contributor or first production user.
+- Keep releases limited to reviewed, protected `fork-v*` tags.
 
 ## Releases
 
-Versions follow [SemVer](https://semver.org/) and are calculated
-**automatically** from commit messages. Nobody bumps the version by hand. Every
-merge to `main` triggers
-[semantic-release](https://github.com/semantic-release/semantic-release), which
-inspects the Conventional Commits since the previous tag, computes the next
-version, updates [`CHANGELOG.md`](CHANGELOG.md), publishes to npm, creates the
-matching GitHub Release, and mirrors it into the [official MCP
-registry](https://registry.modelcontextprotocol.io) so registry-driven clients
-discover the new version automatically.
-
-| Commit type | Resulting bump |
-|---|---|
-| `fix:`, `perf:` | patch |
-| `feat:` | minor |
-| `feat!:`, `fix!:`, or a `BREAKING CHANGE:` footer | major |
-| `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `style:`, `build:` | no release |
-
-The full pipeline, covering Renovate, the release gating and the registry
-manifest, is in [`docs/release-automation.md`](docs/release-automation.md); the
-short rules for agents are in [Release workflow](AGENTS.md#release-workflow).
+This fork does not publish to npm or the MCP Registry and does not release
+automatically on merge to `main`. The maintainer's reviewed tag, image and
+archive process is documented in [`docs/fork-releases.md`](docs/fork-releases.md).
+[`docs/release-automation.md`](docs/release-automation.md) describes upstream
+automation only.

@@ -1,0 +1,6 @@
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli@sha256:ba2726407ae3654d11ffdcd2eff74879f46c2ce805a8caa554d690afb615e433
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8085 --project=demo-zendesk-mcp
+    ports:
+      - "127.0.0.1:8085:8085"

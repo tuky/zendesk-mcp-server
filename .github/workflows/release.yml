@@ -1,305 +1,109 @@
-name: Release
-
+name: Fork release
 on:
   push:
-    branches: [main]
-
-concurrency:
-  group: release
-  cancel-in-progress: false
-
-# Every write in this job goes through the App installation token minted
-# below, so the built-in GITHUB_TOKEN only ever reads the tree for checkout.
-# `id-token: write` is what NPM Trusted Publishing and the MCP registry login
-# exchange for their OIDC credentials.
+    tags: ['fork-v*']
 permissions:
   contents: read
-  id-token: write
-
 jobs:
-  release:
+  validate-tag:
     runs-on: ubuntu-latest
-    # The App's private key lives in this environment, not in repository
-    # secrets, and the environment only admits workflows running on `main`.
-    # Without that boundary any branch could mint the App token and push
-    # straight to `main`, since the App bypasses every rule in the ruleset.
-    environment: release
-    # The whole pipeline runs in about a minute. A wedged step should fail
-    # rather than hold the runner for the 6-hour default, which would also
-    # outlive the App installation token minted below.
-    timeout-minutes: 30
-    # Read by the image jobs below, which publish the container image.
-    outputs:
-      published: ${{ steps.released.outputs.published }}
-      version: ${{ steps.released.outputs.version }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          persist-credentials: false
+      - name: Validate versioned tag on main
+        env:
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$COMMIT" FETCH_HEAD
+          test "$(git cat-file -t "refs/tags/$TAG")" = tag
+          node --input-type=module - "$COMMIT" "$TAG" <<'NODE'
+          import { execFileSync } from 'node:child_process';
 
+          const [commit, tag] = process.argv.slice(2);
+          if (!/^fork-v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag ?? '')) {
+            throw new Error(`Invalid fork release tag: ${tag}`);
+          }
+          const packageJson = JSON.parse(
+            execFileSync('git', ['show', `${commit}:package.json`], { encoding: 'utf8' }),
+          );
+          if (tag !== `fork-v${packageJson.version}`) {
+            throw new Error(`Tag ${tag} does not match package version ${packageJson.version}`);
+          }
+          NODE
+  publish:
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
       - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v7
         with:
-          # Single source of truth for the tooling Node version: .nvmrc.
-          # ci.yml uses the same file. Node 22 compatibility (the floor
-          # declared in package.json#engines.node) is verified by the
-          # `smoke-node-floor` job in ci.yml, which installs the packed tarball
-          # on Node 22 and runs the smoke test.
           node-version-file: .nvmrc
           cache: pnpm
-          # No `registry-url`: with NPM Trusted Publishing, the OIDC exchange
-          # happens inside @semantic-release/npm. Letting setup-node write
-          # an ~/.npmrc with an `_authToken=${NODE_AUTH_TOKEN}` placeholder
-          # would either require us to re-introduce NPM_TOKEN or break the
-          # pre-publish `npm whoami` check.
-
-      - name: Upgrade npm to a version that supports OIDC Trusted Publishing
-        # Full Trusted Publishing OIDC (publish without NPM_TOKEN, using
-        # only id-token: write) needs npm >= 11.5.1. @semantic-release/npm
-        # shells out to the npm CLI, so it is the global npm version that
-        # matters here. Kept as a defensive upgrade even when the Node
-        # release bundles a newer npm — it's a no-op if already satisfied.
-        run: npm install -g npm@^11.5.1
-
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm check
-
-      - run: pnpm typecheck
-
-      - run: pnpm test
-
-      - run: pnpm build
-
+      - run: pnpm check && pnpm typecheck && pnpm test && pnpm build
       - run: node scripts/smoke-test.mjs
-
-      # main is protected by a ruleset that requires a pull request *and*
-      # status checks which only ever report on one, so a direct push of the
-      # `chore(release)` commit is refused twice over and the built-in
-      # GITHUB_TOKEN comes back with GH006. This App is on that ruleset's
-      # bypass list, and a bypass actor skips every rule in it. The token is
-      # minted here rather than at the top of the job because it lives one hour
-      # and is revoked in post-job: install, test and build must not eat into
-      # that window.
-      - uses: actions/create-github-app-token@v3
-        id: app-token
-        with:
-          # `client-id`, not the deprecated `app-id`. A variable rather than a
-          # secret because the Client ID is public: `GET /apps/{slug}` serves it
-          # to anyone. The private key is the credential, and it alone lives in
-          # this job's environment.
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          # Without these the token inherits every permission the installation
-          # holds. Pinning them stops a later permission grant to the App from
-          # silently widening what a release run can do.
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
-
-      # scripts/git-retry/git retries the pushes semantic-release makes, so one
-      # transient GitHub refusal no longer leaves a release half published.
-      - run: |
-          REAL_GIT="$(command -v git)"
-          export REAL_GIT
-          PATH="$GITHUB_WORKSPACE/scripts/git-retry:$PATH" pnpm exec semantic-release
-        env:
-          # The App token, not secrets.GITHUB_TOKEN: it authenticates both the
-          # `git push HEAD:main` of @semantic-release/git (which needs the
-          # ruleset bypass) and the GitHub release + issue comments of
-          # @semantic-release/github. Note that an App installation token is a
-          # third-party identity, so unlike the repository-generated
-          # GITHUB_TOKEN its pushes *do* start workflow runs. What keeps this
-          # release commit from starting another Release run is the `[skip ci]`
-          # in its message (asserted by tests/unit/releaserc-skip-ci.test.ts,
-          # since nothing else would catch its removal). That marker only
-          # suppresses `push` and `pull_request`, so it is no help against the
-          # `pull_request_target` and `workflow_dispatch` triggers elsewhere in
-          # this repo — neither of which a push can raise. Nothing listens on
-          # `release` either, so publishing one starts nothing.
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # Auth to npm is via NPM Trusted Publishing (OIDC), configured on
-          # npmjs.com against this workflow file. The `id-token: write`
-          # permission above is all that's needed — no NPM_TOKEN secret.
-          # Verbose logging so the next failure is debuggable from the run
-          # log alone (the OIDC publish step previously exit-1'd without
-          # surfacing the actual npm error).
-          DEBUG: 'semantic-release:*'
-          NPM_CONFIG_LOGLEVEL: verbose
-
-      # --- Mirror the release into the official MCP registry ---
-      # registry.modelcontextprotocol.io is increasingly the default discovery
-      # surface for MCP-aware clients. We publish here right after npm so the
-      # listing tracks every release with no manual step. Auth reuses the
-      # workflow's `id-token: write` (GitHub OIDC) — no extra secret. Ownership
-      # of the npm package is proven by the `mcpName` field in package.json.
-      # semantic-release tags the release commit it creates, and only when it
-      # cuts a release, so a version tag on HEAD is the signal. Not a
-      # package.json diff: a release retried after its tag was deleted starts
-      # with package.json already at that version.
-      - name: Detect whether a release was published
-        id: released
+      - run: pnpm exec vitest run --config vitest.bundle.config.ts
+      - run: docker compose -f compose.firestore.yml up -d
+      - name: Wait for emulator
         run: |
-          # Stable tags only; `|| true` because Actions runs bash with pipefail.
-          tag="$(git tag --points-at HEAD --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
-          if [ -n "$tag" ]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-            echo "Release ${tag#v} detected; will publish to the MCP registry."
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "No release this run; skipping MCP registry publish."
-          fi
-
-      # No server.json generation step: the manifest is version-controlled at
-      # the repo root and semantic-release has already synced its `version`
-      # (via @semantic-release/exec -> scripts/sync-server-json-version.mjs) and
-      # committed it. mcp-publisher below reads that committed, freshly-bumped
-      # file straight from the working tree.
-
-      - name: Install mcp-publisher
-        if: steps.released.outputs.published == 'true'
-        env:
-          # Pinned (not `latest`) and checksum-verified before it runs in this
-          # OIDC-privileged job. Bump from the modelcontextprotocol/registry
-          # releases when a newer publisher is needed.
-          MCP_PUBLISHER_VERSION: '1.7.9'
-        run: |
-          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-          asset="mcp-publisher_${os}_${arch}.tar.gz"
-          base="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
-          curl -fsSL -o "$asset" "$base/$asset"
-          curl -fsSL -o checksums.txt "$base/registry_${MCP_PUBLISHER_VERSION}_checksums.txt"
-          grep " ${asset}$" checksums.txt | sha256sum -c -
-          tar xzf "$asset" mcp-publisher
-          rm -f "$asset" checksums.txt
-
-      - name: Authenticate to the MCP registry (GitHub OIDC)
-        if: steps.released.outputs.published == 'true'
-        run: ./mcp-publisher login github-oidc
-
-      - name: Publish to the MCP registry
-        if: steps.released.outputs.published == 'true'
-        env:
-          VERSION: ${{ steps.released.outputs.version }}
-        run: |
-          # The registry validates by fetching the npm tarball; allow for npm
-          # propagation right after publish. npm can hold a new version in
-          # "processing" for minutes (3.1.0 took over 100 s), so the backoff
-          # sums to about 4.5 minutes.
-          attempts=8
-          for attempt in $(seq 1 "$attempts"); do
-            if ./mcp-publisher publish; then
-              echo "Published $VERSION to the MCP registry."
-              exit 0
-            fi
-            if [ "$attempt" -lt "$attempts" ]; then
-              echo "Publish attempt $attempt failed; retrying in $((attempt * 10))s..."
-              sleep "$((attempt * 10))"
-            fi
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8085 >/dev/null; then exit 0; fi
+            sleep 2
           done
-          echo "MCP registry publish failed after $attempts attempts." >&2
           exit 1
-
-  # The container image of the release just cut: built from its tag, tested,
-  # then pushed, signed and attested (.github/actions/publish-image).
-  image:
-    needs: release
-    # always(): once npm has the version, it gets its image even if a later
-    # step of the release job (the MCP registry publish) failed.
-    if: always() && needs.release.outputs.published == 'true'
-    runs-on: ubuntu-latest
-    # Same boundary as the release job: only `main` can publish.
-    environment: release
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: v${{ needs.release.outputs.version }}
-          persist-credentials: false
-
-      - uses: ./.github/actions/publish-image
-        with:
-          version: ${{ needs.release.outputs.version }}
-          dhi-username: ${{ secrets.DHI_USERNAME }}
-          dhi-token: ${{ secrets.DHI_TOKEN }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-  # No release this run: if the published image is on another base than the
-  # Dockerfile's, rebuild the latest release on the Dockerfile's base and move its
-  # tags (X.Y.Z included) to the new digest. Compared against the image itself, not
-  # against this push's diff, so a run dropped by the concurrency group is caught
-  # up by the next one. Only when the Dockerfile moved nothing but its FROM lines
-  # since that release; anything else waits for the next release.
-  republish:
-    needs: release
-    if: needs.release.outputs.published != 'true'
-    runs-on: ubuntu-latest
-    environment: release
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
+      - run: pnpm test:firestore
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8085
+      - name: Recheck tag target before publishing
+        env:
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          remote_commit="$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)"
+          test "$remote_commit" = "$COMMIT"
+      - run: pnpm pack --pack-destination .
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Put the new base under the latest release
-        id: base
-        run: |
-          set -euo pipefail
-          wanted=$(grep -E '^FROM ' Dockerfile | tail -1 | awk '{print $2}')
-          wanted=${wanted#*@}
-          # buildx prints one config for a single-platform image, a map by
-          # platform for an index (the attestations make it one).
-          published=$(docker buildx imagetools inspect ghcr.io/fruggr/zendesk-mcp-server:latest \
-              --format '{{json .Image}}' 2>/dev/null \
-            | jq -r '(if has("config") then . else .["linux/amd64"] end).config.Labels["org.opencontainers.image.base.digest"] // ""' \
-            || true)
-          if [ "$published" = "$wanted" ]; then
-            echo "The published image already runs on $wanted."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
-          other=$(git diff -U0 "$tag" HEAD -- Dockerfile | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]FROM ' || true)
-          if [ -n "$other" ]; then
-            echo "::notice::The Dockerfile changed beyond its base image since $tag; the next release publishes it."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The release's tree in a worktree, so the tooling below stays HEAD's.
-          git worktree add --quiet "$RUNNER_TEMP/release" "$tag"
-          git show HEAD:Dockerfile > "$RUNNER_TEMP/release/Dockerfile"
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          echo "context=$RUNNER_TEMP/release" >> "$GITHUB_OUTPUT"
-
-      - if: steps.base.outputs.ready == 'true'
-        uses: ./.github/actions/publish-image
+      - name: Image coordinates
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: echo "tag=ghcr.io/${REPOSITORY,,}:${TAG}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
         with:
-          version: ${{ steps.base.outputs.version }}
-          context: ${{ steps.base.outputs.context }}
-          dhi-username: ${{ secrets.DHI_USERNAME }}
-          dhi-token: ${{ secrets.DHI_TOKEN }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.image.outputs.tag }}
+      - run: node scripts/container-smoke.mjs "$IMAGE"
+        env:
+          IMAGE: ${{ steps.image.outputs.tag }}
+      - name: Publish reviewed tag image and source package
+        env:
+          IMAGE: ${{ steps.image.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          remote_commit="$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)"
+          test "$remote_commit" = "$GITHUB_SHA"
+          docker push "$IMAGE"
+          remote_commit="$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)"
+          test "$remote_commit" = "$GITHUB_SHA"
+          gh release create "$TAG" ./*.tgz --verify-tag --generate-notes

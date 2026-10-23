@@ -452,9 +452,7 @@ describe('prepareAuthorizationServer', () => {
         ['info', 'oauth_master_secret_generated'],
         ['warn', 'oauth_master_secret_beside_store'],
       ]);
-      expect(existsSync(join(dir, 'fruggr', 'zendesk-mcp-server', 'oauth-master-secret'))).toBe(
-        true,
-      );
+      expect(existsSync(join(dir, 'tuky', 'zendesk-mcp-server', 'oauth-master-secret'))).toBe(true);
     } finally {
       vi.unstubAllEnvs();
       rmSync(dir, { recursive: true, force: true });

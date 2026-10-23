@@ -46,8 +46,7 @@ export function buildServerJson(packageJson) {
     repository: {
       url: repositoryUrl,
       source: 'github',
-      // Stable numeric repo id — keeps the registry entry valid across renames.
-      id: '1206027556',
+      id: '1428451542',
     },
     websiteUrl: packageJson.homepage,
     packages: [

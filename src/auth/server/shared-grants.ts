@@ -13,6 +13,7 @@ import {
 type Grant = ZendeskTokenSet & { refreshAttempt?: { owner: string; until: number } };
 const TTL = 90 * 86400;
 const LEASE_MS = 60_000;
+// Stryker disable next-line ConditionalExpression: undefined expiry yields NaN, whose comparison is false.
 const needsRefresh = (tokens: Grant, now: number) =>
   tokens.expiresAt !== undefined && tokens.expiresAt - now <= 3600_000 + ZENDESK_REFRESH_MARGIN_MS;
 

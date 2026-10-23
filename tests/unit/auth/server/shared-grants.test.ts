@@ -265,6 +265,34 @@ describe('createSharedZendeskGrants', () => {
     }
   });
 
+  it('rejects a refresh that completes at the lease deadline', async () => {
+    const { store } = createTransactionalRecordStore();
+    const grants = createSharedZendeskGrants({
+      store,
+      ring: ring(),
+      upstream: UPSTREAM,
+      refresh: async () => {
+        const current = await records(store).get('deadline');
+        await records(store).set('deadline', {
+          ...EXPIRED,
+          refreshAttempt: {
+            owner: current?.refreshAttempt?.owner ?? '',
+            until: NOW,
+          },
+        });
+        return FRESH;
+      },
+      now: () => NOW,
+    });
+    await grants.save('deadline', EXPIRED);
+
+    await expect(grants.accessToken('deadline')).rejects.toMatchObject({
+      name: 'ZendeskGrantUnavailable',
+      cause: { name: 'ZendeskGrantUnavailable' },
+    });
+    expect(await records(store).get('deadline')).toBeUndefined();
+  });
+
   it('returns a retryable error after the maximum wait for an active owner', async () => {
     const { store } = createTransactionalRecordStore();
     await records(store).set('busy', {

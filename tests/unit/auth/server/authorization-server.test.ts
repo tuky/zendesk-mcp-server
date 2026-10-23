@@ -302,10 +302,18 @@ describe('createAuthorizationServer', () => {
     it('uses shared storage for the OAuth flow and verifies access after restart', async () => {
       const { store } = createTransactionalRecordStore();
       const as = await serve(store);
+      const pendingWrites: string[] = [];
+      const set = store.set.bind(store);
+      vi.spyOn(store, 'set').mockImplementation(async (key, value, ttlMs) => {
+        pendingWrites.push(key);
+        await set(key, value, ttlMs);
+      });
       const { tokens } = await signInWithDcr(base);
       const bearer = tokens.body.access_token ?? '';
       const grantId = (await as.verifyAccessToken(bearer))?.grantId ?? '';
       expect(grantId).not.toBe('');
+      expect(pendingWrites.some((key) => key.startsWith('PendingVerifier:'))).toBe(true);
+      expect(pendingWrites.some((key) => key.startsWith('PendingToken:'))).toBe(true);
 
       const restarted = build(store, undefined, base);
       expect(await restarted.verifyAccessToken(bearer)).toMatchObject({ grantId });

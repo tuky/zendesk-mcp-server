@@ -117,6 +117,7 @@ export const createSealedCollection = <T>(
         });
       const sealed = await store.get(key(id));
       await store.delete(key(id));
+      // Stryker disable next-line ConditionalExpression: open catches absent sealed values and returns undefined.
       return sealed === undefined ? undefined : (await open<T>(ring, sealed))?.value;
     },
     delete: async (id) => {

@@ -439,7 +439,7 @@ describe('createSharedAdapterFactory', () => {
   });
 
   it('destroys a non-grant record without revoking its grant', async () => {
-    const { store, ring, adapterFor } = setup();
+    const { store, ring, entries, adapterFor } = setup();
     const refreshToken = adapterFor('RefreshToken');
     await refreshToken.upsert('refresh-id', { grantId: 'grant-id' });
     await refreshToken.destroy('refresh-id');
@@ -447,6 +447,7 @@ describe('createSharedAdapterFactory', () => {
     expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
       undefined,
     );
+    expect([...entries.keys()].some((key) => key.startsWith('Revoked:'))).toBe(false);
   });
 
   it('reseals shared records under the current key without losing expiry', async () => {
@@ -554,6 +555,16 @@ describe('createSealedCollection', () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(await collection.take('uid')).toBeUndefined();
     expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start a key-rotation transaction for a current-key record', async () => {
+    const { store } = createTransactionalRecordStore();
+    const collection = createSealedCollection<string>(store, 'Current', deriveKeyRing(OLD));
+    await collection.set('record', 'value');
+    const transaction = vi.spyOn(store, 'transaction');
+
+    expect(await collection.get('record')).toBe('value');
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   // A store outage must not read as every grant being gone: clients would drop

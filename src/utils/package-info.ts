@@ -10,7 +10,7 @@ export interface PackageInfo {
 // Used only if package.json can't be located/parsed (should not happen in a
 // published install). Keeps the server bootable rather than throwing.
 const FALLBACK: PackageInfo = {
-  name: '@fruggr/zendesk-mcp-server',
+  name: '@tuky/zendesk-mcp-server',
   version: '0.0.0',
 };
 
@@ -19,8 +19,8 @@ const FALLBACK: PackageInfo = {
  * of hardcoding them. Walks up from this module to the nearest package.json,
  * which resolves correctly both when bundled (`dist/index.js` → repo root) and
  * from source/tests (`src/` has no package.json, so the root is found). Reading
- * at runtime (not inlining at build) matters because semantic-release bumps the
- * version into package.json before publishing, after the build step.
+ * at runtime (not inlining at build) matters because a reviewed fork release
+ * updates package.json before publishing, after the build step.
  */
 // package.json can't change during the process lifetime, and createMcpServer
 // (hence this) may run several times (notably across tests) — cache the result.

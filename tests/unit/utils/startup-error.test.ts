@@ -21,8 +21,8 @@ const anchorsOf = (markdown: string): Set<string> =>
 describe('STARTUP_DOCS', () => {
   it.each(Object.entries(STARTUP_DOCS))('%s links a section that exists on main', (_, url) => {
     const { pathname, hash } = new URL(url);
-    expect(pathname).toMatch(/^\/fruggr\/zendesk-mcp-server\/blob\/main\/docs\//);
-    const file = pathname.replace('/fruggr/zendesk-mcp-server/blob/main/', '');
+    expect(pathname).toMatch(/^\/tuky\/zendesk-mcp-server\/blob\/main\/docs\//);
+    const file = pathname.replace('/tuky/zendesk-mcp-server/blob/main/', '');
     expect(anchorsOf(readFileSync(file, 'utf8'))).toContain(hash.slice(1));
   });
 });
@@ -32,7 +32,7 @@ describe('createStartupError', () => {
     const cause = new Error('EROFS');
     const err = createStartupError('Cannot write here.', STARTUP_DOCS.secretAndStore, cause);
     expect(err.message).toBe(
-      'Cannot write here. See https://github.com/fruggr/zendesk-mcp-server/blob/main/docs/http-deployment.md#master-secret-and-grant-store',
+      'Cannot write here. See https://github.com/tuky/zendesk-mcp-server/blob/main/docs/http-deployment.md#master-secret-and-grant-store',
     );
     expect(err.cause).toBe(cause);
     expect(err.docs).toBe(STARTUP_DOCS.secretAndStore);

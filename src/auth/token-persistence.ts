@@ -25,7 +25,7 @@ const isWindows = process.platform === 'win32';
 
 /**
  * Config-dir segments derived from the *scoped* package name
- * (`@fruggr/zendesk-mcp-server` → `fruggr` + `zendesk-mcp-server`) so the path is
+ * (`@tuky/zendesk-mcp-server` → `tuky` + `zendesk-mcp-server`) so the path is
  * vendor-namespaced and can't collide with another `zendesk-mcp-server`.
  */
 // Splits an npm scoped name into [scope, package]; hoisted so it is compiled once.

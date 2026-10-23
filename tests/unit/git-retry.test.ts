@@ -105,12 +105,46 @@ describe.skipIf(process.platform === 'win32')('git retry wrapper (scripts/git-re
   });
 });
 
-describe('release.yml semantic-release step', () => {
+describe('fork release workflow', () => {
   const workflow = readFileSync(new URL('.github/workflows/release.yml', repoRoot), 'utf8');
-  const step = workflow.slice(workflow.indexOf('pnpm exec semantic-release') - 200);
 
-  it('puts the wrapper ahead of git on PATH and points it at the real git', () => {
-    expect(step).toMatch(/REAL_GIT="\$\(command -v git\)"/);
-    expect(step).toMatch(/PATH="\$GITHUB_WORKSPACE\/scripts\/git-retry:\$PATH"/);
+  it('publishes only from fork release tags, not automatically from main', () => {
+    expect(workflow).toMatch(/on:\s*push:\s*tags:\s*\['fork-v\*'\]/);
+    expect(workflow).not.toContain('semantic-release');
+    expect(workflow).not.toMatch(/branches:\s*\[main\]/);
+  });
+
+  it('runs verification before publishing the image and archive', () => {
+    const checks = workflow.indexOf('pnpm check && pnpm typecheck && pnpm test && pnpm build');
+    const publish = workflow.indexOf('Publish reviewed tag image and source package');
+    expect(checks).toBeGreaterThanOrEqual(0);
+    expect(publish).toBeGreaterThan(checks);
+    expect(workflow).toContain('docker push "$IMAGE"');
+    expect(workflow).toContain('gh release create "$TAG"');
+  });
+
+  it('validates an annotated, version-matched tag on main before privileged publishing', () => {
+    expect(workflow).toContain('validate-tag:');
+    expect(workflow).toContain('git merge-base --is-ancestor "$COMMIT" FETCH_HEAD');
+    expect(workflow).toContain('git cat-file -t "refs/tags/$TAG"');
+    expect(workflow).toMatch(/tag !== `fork-v\$\{packageJson\.version\}`/);
+    expect(workflow).toMatch(/publish:\s+needs: validate-tag/);
+    expect(workflow).toMatch(/ref: \$\{\{ github\.sha \}\}/);
+    expect(workflow).toMatch(/git ls-remote origin "refs\/tags\/\$\{TAG\}\^\{\}"/);
+  });
+});
+
+describe('fork packaging', () => {
+  const ci = readFileSync(new URL('.github/workflows/ci.yml', repoRoot), 'utf8');
+  const containerSmoke = readFileSync(new URL('scripts/container-smoke.mjs', repoRoot), 'utf8');
+
+  it('uses the fork package name in the Node 22 tarball smoke test', () => {
+    expect(ci).toContain('node_modules/@tuky/zendesk-mcp-server');
+    expect(ci).not.toContain('node_modules/@fruggr/zendesk-mcp-server');
+  });
+
+  it('checks the startup error link against the fork documentation', () => {
+    expect(containerSmoke).toContain('github\\.com\\/tuky\\/zendesk-mcp-server');
+    expect(containerSmoke).not.toContain('github\\.com\\/fruggr\\/zendesk-mcp-server');
   });
 });

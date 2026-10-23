@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CompactEncrypt, compactDecrypt, decodeProtectedHeader } from 'jose';
-import type { Adapter, AdapterFactory, AdapterPayload } from 'oidc-provider';
+import { type Adapter, type AdapterFactory, type AdapterPayload, errors } from 'oidc-provider';
 import { createFileStore, createMemoryStore, type RecordStore } from './file-store';
 import type { KeyRing } from './keys';
 
@@ -84,7 +84,7 @@ export const createSealedCollection = <T>(
   store: RecordStore,
   name: string,
   ring: KeyRing,
-): SealedCollection<T> => {
+): SealedCollection<T> & { take(id: string): Promise<T | undefined> } => {
   const key = (id: string) => `${name}:${hashId(id)}`;
   return {
     get: async (id) => {
@@ -92,6 +92,9 @@ export const createSealedCollection = <T>(
       // Stryker disable next-line ConditionalExpression: open answers undefined for a missing one too.
       if (sealed === undefined) return undefined;
       const record = await open<T>(ring, sealed);
+      if (record && !record.current && store.transaction) {
+        return store.transaction((tx) => createSealedCollection<T>(tx, name, ring).get(id));
+      }
       if (record && !record.current) {
         const { expiresAt } = record;
         const ttlMs = expiresAt === undefined ? undefined : expiresAt - Date.now();
@@ -103,6 +106,19 @@ export const createSealedCollection = <T>(
       const ttlMs = ttlSeconds ? ttlSeconds * 1000 : undefined;
       const expiresAt = ttlMs === undefined ? undefined : Date.now() + ttlMs;
       await store.set(key(id), await seal(ring, value, expiresAt), ttlMs);
+    },
+    take: async (id) => {
+      if (store.transaction)
+        return store.transaction(async (tx) => {
+          const records = createSealedCollection<T>(tx, name, ring);
+          const value = await records.get(id);
+          await records.delete(id);
+          return value;
+        });
+      const sealed = await store.get(key(id));
+      await store.delete(key(id));
+      // Stryker disable next-line ConditionalExpression: open catches absent sealed values and returns undefined.
+      return sealed === undefined ? undefined : (await open<T>(ring, sealed))?.value;
     },
     delete: async (id) => {
       await store.delete(key(id));
@@ -142,6 +158,7 @@ export interface AdapterStores {
 
 /** oidc-provider adapter factory over two stores, sealed with the at-rest key. */
 export const createAdapterFactory = (stores: AdapterStores, ring: KeyRing): AdapterFactory => {
+  if (stores.persistent.shared) return createSharedAdapterFactory(stores.persistent, ring);
   const memory = stores.memory ?? createMemoryStore();
   const withLock = createKeyLock();
 
@@ -203,4 +220,70 @@ export const openStore = (uri: string): RecordStore => {
   if (protocol === 'memory:') return createMemoryStore();
   if (protocol === 'file:') return createFileStore(fileURLToPath(uri));
   throw new Error(`Unsupported OAuth store scheme "${protocol}". Use file:// or memory://.`);
+};
+
+const GRANT_TTL = 90 * 86400;
+const rejectReplay = async (value: AdapterPayload, revoked: SealedCollection<boolean>) => {
+  if (value.grantId) await revoked.set(value.grantId, true, GRANT_TTL);
+  return false;
+};
+/** All provider models share Firestore. Tombstones replace unbounded token indexes. */
+export const createSharedAdapterFactory = (store: RecordStore, ring: KeyRing): AdapterFactory => {
+  const transaction = store.transaction;
+  if (!transaction) throw new Error('Shared OAuth storage requires transactions.');
+  return (name: string): Adapter => {
+    const collections = (tx: RecordStore) => ({
+      records: createSealedCollection<AdapterPayload>(tx, name, ring),
+      uids: createSealedCollection<string>(tx, `${name}:uid`, ring),
+      revoked: createSealedCollection<boolean>(tx, 'Revoked', ring),
+    });
+    return {
+      upsert: (id, payload, ttl) =>
+        transaction(async (tx) => {
+          const { records, uids, revoked } = collections(tx);
+          const grantId = name === 'Grant' ? id : payload.grantId;
+          if (grantId && (await revoked.get(grantId))) throw new errors.InvalidGrant();
+          await records.set(id, payload, ttl);
+          if (payload.uid) await uids.set(payload.uid, id, ttl);
+        }),
+      find: async (id) => {
+        const { records, revoked } = collections(store);
+        const value = await records.get(id);
+        const grantId = name === 'Grant' ? id : value?.grantId;
+        return grantId && (await revoked.get(grantId)) ? undefined : value;
+      },
+      findByUid: async (uid) => {
+        const { records, uids } = collections(store);
+        const id = await uids.get(uid);
+        return id ? records.get(id) : undefined;
+      },
+      findByUserCode: async () => undefined,
+      consume: async (id) => {
+        const accepted = await transaction(async (tx) => {
+          const { records, revoked } = collections(tx);
+          const value = await records.get(id);
+          if (!value) return false;
+          if (value.consumed) return rejectReplay(value, revoked);
+          if (value.grantId && (await revoked.get(value.grantId))) return false;
+          await records.set(
+            id,
+            { ...value, consumed: Math.floor(Date.now() / 1000) },
+            secondsUntil(value.exp),
+          );
+          return true;
+        });
+        // Throw after commit so the replay tombstone survives the rejected request.
+        if (!accepted) throw new errors.InvalidGrant();
+      },
+      destroy: (id) =>
+        transaction(async (tx) => {
+          const { records, revoked } = collections(tx);
+          if (name === 'Grant') await revoked.set(id, true, GRANT_TTL);
+          await records.delete(id);
+        }),
+      revokeByGrantId: async (grantId) => {
+        await collections(store).revoked.set(grantId, true, GRANT_TTL);
+      },
+    };
+  };
 };

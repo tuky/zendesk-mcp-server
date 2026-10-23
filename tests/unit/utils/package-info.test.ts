@@ -78,7 +78,7 @@ describe('readPackageInfo', () => {
   it('falls back to safe defaults when no package.json can be read', async () => {
     const { readPackageInfo } = await loadWithReads([ENOENT]);
 
-    expect(readPackageInfo()).toEqual({ name: '@fruggr/zendesk-mcp-server', version: '0.0.0' });
+    expect(readPackageInfo()).toEqual({ name: '@tuky/zendesk-mcp-server', version: '0.0.0' });
   });
 
   it('reads package.json once and serves later calls from the cache', async () => {
@@ -136,14 +136,14 @@ describe('the walk terminates, and on whichever limit comes first', () => {
     // A symlink or a container mount can make `dirname` climb forever.
     const { readPackageInfo, readFileSyncMock } = await loadWithWalk(NEVER_REACHES_ROOT);
 
-    expect(readPackageInfo()).toEqual({ name: '@fruggr/zendesk-mcp-server', version: '0.0.0' });
+    expect(readPackageInfo()).toEqual({ name: '@tuky/zendesk-mcp-server', version: '0.0.0' });
     expect(readFileSyncMock).toHaveBeenCalledTimes(8);
   });
 
   it('stops at the root instead of re-reading it to the depth bound', async () => {
     const { readPackageInfo, readFileSyncMock } = await loadWithWalk(ROOT_IS_THE_PARENT);
 
-    expect(readPackageInfo()).toEqual({ name: '@fruggr/zendesk-mcp-server', version: '0.0.0' });
+    expect(readPackageInfo()).toEqual({ name: '@tuky/zendesk-mcp-server', version: '0.0.0' });
     expect(readFileSyncMock.mock.calls).toEqual([['//package.json', 'utf8']]);
   });
 });

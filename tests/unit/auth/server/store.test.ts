@@ -15,9 +15,11 @@ import {
   createAdapterFactory,
   createKeyLock,
   createSealedCollection,
+  createSharedAdapterFactory,
   openStore,
   PERSISTENT_MODELS,
 } from '../../../../src/auth/server/store';
+import { createTransactionalRecordStore } from './transactional-record-store';
 
 const OLD = Buffer.alloc(32, 1).toString('base64');
 const NEW = Buffer.alloc(32, 2).toString('base64');
@@ -301,6 +303,183 @@ describe('createAdapterFactory, key layout and expiry', () => {
   });
 });
 
+describe('createSharedAdapterFactory', () => {
+  const setup = () => {
+    const { store, entries } = createTransactionalRecordStore();
+    const ring = deriveKeyRing(OLD);
+    const adapterFor = (name: string) => createAdapterFactory({ persistent: store }, ring)(name);
+    return { store, entries, ring, adapterFor };
+  };
+
+  it('requires a transactional backend', () => {
+    expect(() => createSharedAdapterFactory(createMemoryStore(), deriveKeyRing(OLD))).toThrow(
+      'Shared OAuth storage requires transactions.',
+    );
+  });
+
+  it('expires revocation tombstones after 90 days', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const { entries, adapterFor } = setup();
+      await adapterFor('RefreshToken').revokeByGrantId('grant-id');
+      expect([...entries.values()].map(({ exp }) => exp)).toEqual([NOW + 90 * 86400 * 1000]);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it('stores payloads and uid indexes transactionally in the shared backend', async () => {
+    const { store, entries, adapterFor } = setup();
+    const adapter = adapterFor('Client');
+    await adapter.upsert('client', { client_id: 'client', uid: 'stable-uid' }, 60);
+
+    expect([...entries.keys()].sort()).toEqual(
+      [`Client:${hashed('client')}`, `Client:uid:${hashed('stable-uid')}`].sort(),
+    );
+    expect(await adapter.find('client')).toEqual({ client_id: 'client', uid: 'stable-uid' });
+    expect(await adapter.findByUid('stable-uid')).toEqual({
+      client_id: 'client',
+      uid: 'stable-uid',
+    });
+    expect(await adapter.findByUid('missing')).toBeUndefined();
+    expect(await adapter.findByUserCode('unused')).toBeUndefined();
+    expect(store.shared).toBe(true);
+  });
+
+  it('commits a revocation tombstone before rejecting a replay', async () => {
+    const { store, ring, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    await adapter.upsert('refresh-id', { grantId: 'grant-id', exp: futureExp(60) }, 60);
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      await adapter.consume('refresh-id');
+      expect(
+        await createSealedCollection<{ consumed?: number }>(store, 'RefreshToken', ring).get(
+          'refresh-id',
+        ),
+      ).toMatchObject({ consumed: NOW_S });
+
+      await expect(adapter.consume('refresh-id')).rejects.toHaveProperty('name', 'InvalidGrant');
+      expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+        true,
+      );
+      expect(await adapter.find('refresh-id')).toBeUndefined();
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it('rejects consuming an unknown shared token', async () => {
+    const { entries, adapterFor } = setup();
+    await expect(adapterFor('RefreshToken').consume('missing')).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+    expect(entries.size).toBe(0);
+    expect([...entries.keys()].some((key) => key.startsWith('Revoked:'))).toBe(false);
+  });
+
+  it('does not tombstone a replay when the consumed token has no grant id', async () => {
+    const { entries, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    await adapter.upsert('orphaned-refresh', { exp: futureExp(60) });
+    await adapter.consume('orphaned-refresh');
+    await expect(adapter.consume('orphaned-refresh')).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+    expect([...entries.keys()].some((key) => key.startsWith('Revoked:'))).toBe(false);
+  });
+
+  it('rejects consuming a token whose grant was already revoked', async () => {
+    const { store, ring, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    const exp = futureExp(60);
+    await adapter.upsert('refresh-id', { grantId: 'grant-id', exp });
+    await adapter.revokeByGrantId('grant-id');
+    const raw = createSealedCollection<{ grantId: string; exp: number; consumed?: number }>(
+      store,
+      'RefreshToken',
+      ring,
+    );
+    const before = await raw.get('refresh-id');
+
+    await expect(adapter.consume('refresh-id')).rejects.toHaveProperty('name', 'InvalidGrant');
+    expect(await raw.get('refresh-id')).toEqual(before);
+  });
+
+  it('rejects writes for revoked grants and hides their existing records', async () => {
+    const { store, ring, adapterFor } = setup();
+    const adapter = adapterFor('RefreshToken');
+    await adapter.upsert('refresh-id', { grantId: 'grant-id' });
+    await adapter.revokeByGrantId('grant-id');
+
+    expect(await adapter.find('refresh-id')).toBeUndefined();
+    await expect(adapter.upsert('another-refresh', { grantId: 'grant-id' })).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      true,
+    );
+    await expect(adapter.find('missing')).resolves.toBeUndefined();
+  });
+
+  it('hides a grant record when its tombstone is written independently', async () => {
+    const { adapterFor } = setup();
+    const grant = adapterFor('Grant');
+    await grant.upsert('grant-id', { accountId: 'account' });
+    await grant.revokeByGrantId('grant-id');
+    await expect(grant.find('grant-id')).resolves.toBeUndefined();
+  });
+
+  it('destroys a grant by tombstoning it and removes the grant record', async () => {
+    const { store, ring, adapterFor } = setup();
+    const grant = adapterFor('Grant');
+    await grant.upsert('grant-id', { accountId: 'account' });
+    await grant.destroy('grant-id');
+
+    expect(await grant.find('grant-id')).toBeUndefined();
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      true,
+    );
+    await expect(grant.upsert('grant-id', { accountId: 'account' })).rejects.toHaveProperty(
+      'name',
+      'InvalidGrant',
+    );
+  });
+
+  it('destroys a non-grant record without revoking its grant', async () => {
+    const { store, ring, entries, adapterFor } = setup();
+    const refreshToken = adapterFor('RefreshToken');
+    await refreshToken.upsert('refresh-id', { grantId: 'grant-id' });
+    await refreshToken.destroy('refresh-id');
+
+    expect(await createSealedCollection<boolean>(store, 'Revoked', ring).get('grant-id')).toBe(
+      undefined,
+    );
+    expect([...entries.keys()].some((key) => key.startsWith('Revoked:'))).toBe(false);
+  });
+
+  it('reseals shared records under the current key without losing expiry', async () => {
+    const { store } = setup();
+    const previous = deriveKeyRing(OLD);
+    const rotating = deriveKeyRing(`${NEW},${OLD}`);
+    const original = createSealedCollection<{ id: string }>(store, 'Persistent', previous);
+    const duringRotation = createSealedCollection<{ id: string }>(store, 'Persistent', rotating);
+    await original.set('record', { id: 'record' }, 60);
+    const transaction = vi.spyOn(store, 'transaction');
+
+    expect(await duringRotation.get('record')).toEqual({ id: 'record' });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(
+      await createSealedCollection<{ id: string }>(store, 'Persistent', deriveKeyRing(NEW)).get(
+        'record',
+      ),
+    ).toEqual({ id: 'record' });
+  });
+});
+
 describe('createSealedCollection', () => {
   it('treats a tampered or foreign value as absent', async () => {
     const entries: Entries = new Map();
@@ -364,6 +543,39 @@ describe('createSealedCollection', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('takes a local record once and treats a corrupt record as absent', async () => {
+    const store = createMemoryStore();
+    const collection = createSealedCollection<string>(store, 'Pending', deriveKeyRing(OLD));
+    await collection.set('uid', 'verifier');
+    expect(await collection.take('uid')).toBe('verifier');
+    expect(await collection.take('uid')).toBeUndefined();
+
+    await store.set(`Pending:${hashed('corrupt')}`, 'not-a-jwe');
+    expect(await collection.take('corrupt')).toBeUndefined();
+  });
+
+  it('takes a shared record within a transaction', async () => {
+    const { store } = createTransactionalRecordStore();
+    const collection = createSealedCollection<string>(store, 'Pending', deriveKeyRing(OLD));
+    await collection.set('uid', 'verifier');
+    const transaction = vi.spyOn(store, 'transaction');
+
+    expect(await collection.take('uid')).toBe('verifier');
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(await collection.take('uid')).toBeUndefined();
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start a key-rotation transaction for a current-key record', async () => {
+    const { store } = createTransactionalRecordStore();
+    const collection = createSealedCollection<string>(store, 'Current', deriveKeyRing(OLD));
+    await collection.set('record', 'value');
+    const transaction = vi.spyOn(store, 'transaction');
+
+    expect(await collection.get('record')).toBe('value');
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   // A store outage must not read as every grant being gone: clients would drop

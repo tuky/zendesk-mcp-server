@@ -18,6 +18,9 @@ import { createStartupError, errnoCode, STARTUP_DOCS } from '../../utils/startup
  * pluggable today, deliberately (ADR, Storage).
  */
 export interface RecordStore {
+  readonly shared?: boolean;
+  close?(): Promise<void>;
+  transaction?<T>(operation: (store: RecordStore) => Promise<T>): Promise<T>;
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string, ttlMs?: number): Promise<void>;
   delete(key: string): Promise<void>;
@@ -138,3 +141,8 @@ export const createFileStore = (path: string): RecordStore => {
   const entries = load(path);
   return createMemoryStore(entries, () => persist(path, entries));
 };
+
+export interface TransactionalStore extends RecordStore {
+  readonly shared: true;
+  transaction<T>(operation: (store: RecordStore) => Promise<T>): Promise<T>;
+}

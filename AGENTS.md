@@ -274,7 +274,7 @@ and AI authors).
 
 ## Release workflow
 
-Fully automated via semantic-release on push to `main`; never hand-bump
-`version` in `package.json` or the version-controlled `server.json` — release
-syncs both. Reseed `server.json` with `pnpm build:server-json` when its metadata
-changes. Details: `docs/release-automation.md`.
+This independent fork uses reviewed `fork-v*` tags and the container/package
+workflow described in [fork releases](docs/fork-releases.md). Do not invoke the
+inherited semantic-release scripts or publish to the upstream npm/MCP namespaces.
+Update package and server metadata together for an approved fork release.

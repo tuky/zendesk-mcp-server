@@ -1,5 +1,8 @@
 # Release automation
 
+> **Upstream reference only.** This fork does not run this workflow. See
+> [fork releases](fork-releases.md) for the reviewed `fork-v*` process.
+
 This document describes how dependency updates and releases are automated in this repository.
 
 ## Flow overview

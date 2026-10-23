@@ -33,6 +33,12 @@ export interface InteractionDeps {
   readonly consentMemory: SealedCollection<true>;
   readonly trustedClients: ReadonlySet<string>;
   readonly logger?: Logger | undefined;
+  readonly pendingVerifiers?: SealedCollection<string> & {
+    take(id: string): Promise<string | undefined>;
+  };
+  readonly pendingTokens?: SealedCollection<ZendeskTokenSet> & {
+    take(id: string): Promise<ZendeskTokenSet | undefined>;
+  };
 }
 
 const sendHtml = (res: ServerResponse, status: number, html: string): void => {
@@ -78,8 +84,18 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
   const { provider, upstream, issuer } = deps;
   const logger = deps.logger ?? silentLogger;
   const callbackUrl = `${issuer}/oauth/callback`;
-  const verifiers = createExpiringMap<string>();
-  const upstreamTokens = createExpiringMap<ZendeskTokenSet>();
+  const localVerifiers = createExpiringMap<string>();
+  const verifiers = deps.pendingVerifiers ?? {
+    set: async (id: string, value: string, ttl: number) =>
+      localVerifiers.set(id, value, ttl * 1000),
+    take: async (id: string) => localVerifiers.take(id),
+  };
+  const localTokens = createExpiringMap<ZendeskTokenSet>();
+  const upstreamTokens = deps.pendingTokens ?? {
+    set: async (id: string, value: ZendeskTokenSet, ttl: number) =>
+      localTokens.set(id, value, ttl * 1000),
+    take: async (id: string) => localTokens.take(id),
+  };
 
   type Details = Awaited<ReturnType<Provider['interactionDetails']>>;
 
@@ -89,9 +105,9 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
   const deny = (req: IncomingMessage, res: ServerResponse, description: string) =>
     finish(req, res, { error: 'access_denied', error_description: description });
 
-  const startUpstreamLogin = (res: ServerResponse, uid: string): void => {
+  const startUpstreamLogin = async (res: ServerResponse, uid: string): Promise<void> => {
     const verifier = generateCodeVerifier();
-    verifiers.set(uid, verifier, PENDING_TTL_MS);
+    await verifiers.set(uid, verifier, PENDING_TTL_MS / 1000);
     redirect(
       res,
       buildZendeskAuthorizeUrl(upstream, {
@@ -134,7 +150,9 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
       client,
       accountId,
       clientId,
-      pendingKey: `${accountId}|${clientId}`,
+      pendingKey: deps.pendingTokens
+        ? `${accountId}|${clientId}|${String(details.params['code_challenge'])}`
+        : `${accountId}|${clientId}`,
       memoryKey: consentMemoryKey(accountId, clientId, redirectUris),
       redirectUri: String(details.params['redirect_uri']),
       redirectUris,
@@ -144,7 +162,7 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
   const showInteraction = async (req: IncomingMessage, res: ServerResponse, uid: string) => {
     const details = await provider.interactionDetails(req, res);
     if (details.prompt.name === 'login') {
-      startUpstreamLogin(res, uid);
+      await startUpstreamLogin(res, uid);
       return;
     }
     const context = await consentContext(details);
@@ -158,7 +176,7 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
         deps.trustedClients,
       ) || (await deps.consentMemory.get(context.memoryKey)) === true;
     if (skip) {
-      const tokens = upstreamTokens.take(context.pendingKey);
+      const tokens = await upstreamTokens.take(context.pendingKey);
       if (!tokens) return deny(req, res, 'The Zendesk sign-in expired. Try again.');
       return approve(req, res, details, context, tokens);
     }
@@ -185,7 +203,7 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
     url: URL,
   ) => {
     const details = await provider.interactionDetails(req, res);
-    const verifier = verifiers.take(uid);
+    const verifier = await verifiers.take(uid);
     const code = url.searchParams.get('code');
     if (!verifier || !code) {
       return deny(req, res, 'The Zendesk sign-in was cancelled or refused.');
@@ -198,10 +216,12 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
       );
       const identity = await fetchZendeskIdentity(upstream, tokens.accessToken);
       const accountId = `zendesk:${identity.id}`;
-      upstreamTokens.set(
-        `${accountId}|${String(details.params['client_id'])}`,
+      await upstreamTokens.set(
+        deps.pendingTokens
+          ? `${accountId}|${String(details.params['client_id'])}|${String(details.params['code_challenge'])}`
+          : `${accountId}|${String(details.params['client_id'])}`,
         tokens,
-        PENDING_TTL_MS,
+        PENDING_TTL_MS / 1000,
       );
       await finish(req, res, { login: { accountId } });
     } catch (err) {
@@ -216,7 +236,7 @@ export const createInteractionRoutes = (deps: InteractionDeps) => {
     if (details.prompt.name !== 'consent')
       return sendHtml(res, 400, renderErrorPage('Sign-in failed', EXPIRED));
     const context = await consentContext(details);
-    const tokens = upstreamTokens.take(context.pendingKey);
+    const tokens = await upstreamTokens.take(context.pendingKey);
     if (!tokens) return deny(req, res, 'The Zendesk sign-in expired. Try again.');
     await deps.consentMemory.set(context.memoryKey, true, CONSENT_MEMORY_TTL_S);
     return approve(req, res, details, context, tokens);

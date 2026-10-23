@@ -418,6 +418,12 @@ export const startHttpTransport = async (
 ): Promise<HttpServerHandle> => {
   // Secret and store first: a bad secret or store stops startup before the
   // port is bound.
+  const sharedRuntime = config.oauthStore?.startsWith('firestore:') === true;
+  if (sharedRuntime && (config.slaPush || config.slaUserPreferences)) {
+    throw new Error(
+      'Firestore HTTP requires SLA_PUSH=false and SLA_USER_PREFERENCES=false; background notifications and preferences are not shared.',
+    );
+  }
   const buildAuthorizationServer = await prepareAuthorizationServer(config, logger);
   let authorizationServer: AuthorizationServer | undefined;
   const sessions = new Map<string, Session>();
@@ -580,6 +586,38 @@ export const startHttpTransport = async (
     return entry;
   };
 
+  const serveSharedModern = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    body: unknown,
+    token: VerifiedAccessToken,
+    as: AuthorizationServer,
+  ): Promise<void> => {
+    if (listenedUris(body) !== undefined) {
+      sendJsonRpcError(
+        res,
+        400,
+        -32601,
+        'Listen streams are unavailable in stateless deployment mode.',
+      );
+      return;
+    }
+    const entry = createGrantEntry(token, as);
+    const request = asNodeRequest(req);
+    request.auth = {
+      token: '',
+      clientId: token.clientId,
+      scopes: [],
+      expiresAt: token.expiresAt,
+      extra: { verified: token },
+    };
+    try {
+      await entry.handle(request, res, body);
+    } finally {
+      await entry.close();
+    }
+  };
+
   const serveModern = async (
     req: IncomingMessage,
     res: ServerResponse,
@@ -587,6 +625,7 @@ export const startHttpTransport = async (
     token: VerifiedAccessToken,
     as: AuthorizationServer,
   ): Promise<void> => {
+    if (sharedRuntime) return serveSharedModern(req, res, body, token, as);
     const entry = grants.acquire(token.grantId, token.subject, () => createGrantEntry(token, as));
     // A grant belongs to one subject; another one presenting it is refused.
     if (!entry) {
@@ -629,6 +668,36 @@ export const startHttpTransport = async (
     token: VerifiedAccessToken,
     as: AuthorizationServer,
   ): Promise<void> => {
+    if (sharedRuntime) {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { Allow: 'POST, OPTIONS' });
+        res.end();
+        return;
+      }
+      const server = serverFactory({
+        notifyResourceUpdated: () => {},
+        config: effectiveConfig(token),
+        getToken: () => token.zendeskAccessToken,
+        logger,
+        onUnauthorized: () => void as.revokeGrant(token.grantId),
+        requestStateCodec: createRequestStateCodec({
+          key: as.requestStateKey,
+          principal: () => token.grantId,
+        }),
+      });
+      const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      await server.connect(transport);
+      try {
+        await transport.handleRequest(req, res, body);
+      } finally {
+        await transport.close();
+        await server.close();
+      }
+      return;
+    }
     const sessionId =
       typeof req.headers['mcp-session-id'] === 'string' ? req.headers['mcp-session-id'] : undefined;
 
@@ -787,6 +856,7 @@ export const startHttpTransport = async (
       await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));
       });
+      await authorizationServer?.close?.();
     },
   };
 };

@@ -1,5 +1,9 @@
 # Remote HTTP deployment: Zendesk MCP Server
 
+> This is the inherited upstream HTTP profile and assumes the upstream package
+> and image. This fork's Cloud Run deployment is documented in
+> [GCP deployment](gcp-deployment.md).
+
 How to deploy the [Zendesk MCP Server](../README.md) as a private remote MCP
 server over HTTP. For running it locally over stdio (the default, supported
 path), see [Quick start: local](../README.md#quick-start-local-stdio).

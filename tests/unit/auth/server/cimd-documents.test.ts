@@ -296,14 +296,14 @@ describe('createCimdDocuments: serving the copy', () => {
 describe('CIMD_FETCH_HINT', () => {
   it('says what failed and where to read on', () => {
     expect(CIMD_FETCH_HINT).toMatchInlineSnapshot(
-      `"A client document, or a URL it names, could not be fetched: the client cannot sign in or refresh unless a last good copy is served. See https://github.com/fruggr/zendesk-mcp-server/blob/main/docs/troubleshooting.md#http-the-log-shows-oauth_client_fetch_failed"`,
+      `"A client document, or a URL it names, could not be fetched: the client cannot sign in or refresh unless a last good copy is served. See https://github.com/tuky/zendesk-mcp-server/blob/main/docs/troubleshooting.md#http-the-log-shows-oauth_client_fetch_failed"`,
     );
   });
 
   it('points at a troubleshooting section that exists on main', () => {
     const [, link = ''] = CIMD_FETCH_HINT.match(/(https:\/\/\S+)/) ?? [];
     const { pathname, hash } = new URL(link);
-    expect(pathname).toBe('/fruggr/zendesk-mcp-server/blob/main/docs/troubleshooting.md');
+    expect(pathname).toBe('/tuky/zendesk-mcp-server/blob/main/docs/troubleshooting.md');
     const anchors = [
       ...readFileSync('docs/troubleshooting.md', 'utf8').matchAll(/^#{1,6} (.+)$/gm),
     ].map(([, title = '']) =>

@@ -13,6 +13,10 @@ If you are a **support agent** looking to work your queue from your assistant,
 you want the [README](../README.md) instead — that's the other half of this
 server.
 
+> The install commands below use the published upstream package. This
+> independent fork has no npm release; if your company deploys the fork, ask
+> them for the MCP endpoint and client configuration instead.
+
 ---
 
 ## What you need first

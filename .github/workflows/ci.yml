@@ -109,9 +109,9 @@ jobs:
           set -euo pipefail
           mkdir app && cd app && npm init -y > /dev/null
           npm install ../*.tgz
-          EXTRA=$(npm ls --all --parseable | grep '/node_modules/' | grep -v '/node_modules/@fruggr/zendesk-mcp-server$' || true)
+          EXTRA=$(npm ls --all --parseable | grep '/node_modules/' | grep -v '/node_modules/@tuky/zendesk-mcp-server$' || true)
           if [ -n "$EXTRA" ]; then echo "unexpected packages installed:"; echo "$EXTRA"; exit 1; fi
-          test -f node_modules/@fruggr/zendesk-mcp-server/dist/THIRD-PARTY-NOTICES.md
+          test -f node_modules/@tuky/zendesk-mcp-server/dist/THIRD-PARTY-NOTICES.md
           OUT=$(sleep 6 | env ZENDESK_SUBDOMAIN=smoke-test LOG_LEVEL=info OAUTH_STORE=memory:// timeout 5 npx zendesk-mcp-server --transport http --port 0 2>&1 || true)
           echo "$OUT"
           echo "$OUT" | grep -q "http_transport_ready"

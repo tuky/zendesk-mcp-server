@@ -1,10 +1,9 @@
+> **Independent fork in development:** maintained at [tuky/zendesk-mcp-server](https://github.com/tuky/zendesk-mcp-server), based on Fruggr v3.5.0 (MIT). Adds shared Firestore authorization state and a Terraform-managed GCP deployment. See [deployment](docs/gcp-deployment.md) and [validation](docs/fork-validation.md). This fork has no published npm release; installation commands below describe upstream. Live staging acceptance remains required.
+
 # Zendesk MCP Server
 
-[![Glama score](https://glama.ai/mcp/servers/fruggr/zendesk-mcp-server/badges/score.svg)](https://glama.ai/mcp/servers/fruggr/zendesk-mcp-server)
-[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.fruggr%2Fzendesk--mcp--server-0a7ea4)](https://registry.modelcontextprotocol.io/?search=io.github.fruggr/zendesk-mcp-server)
-[![npm version](https://img.shields.io/npm/v/@fruggr/zendesk-mcp-server?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fruggr/zendesk-mcp-server)
-[![License: MIT](https://img.shields.io/npm/l/@fruggr/zendesk-mcp-server?color=blue)](LICENSE)
-[![Node.js](https://img.shields.io/node/v/@fruggr/zendesk-mcp-server?logo=nodedotjs&logoColor=white&color=339933)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js >=22](https://img.shields.io/badge/Node.js-%3E%3D22-brightgreen?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that
 puts Zendesk inside your AI assistant, for **both sides of the conversation**.
@@ -116,9 +115,10 @@ it. A few are listed under
 
 ## Quick start: local (stdio)
 
-The default shape: one developer, one Zendesk account, OAuth 2.1 PKCE in the
-browser. You need **Node.js >= 22** and a **Zendesk** instance (Support or
-Suite).
+The commands in this section install the **upstream** npm package, not this
+unpublished fork. The default shape is one developer, one Zendesk account, and
+OAuth 2.1 PKCE in the browser. You need **Node.js >= 22** and a **Zendesk**
+instance (Support or Suite).
 
 ### Install
 
@@ -210,16 +210,18 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md).
 > end-to-end against a real Zendesk tenant from every MCP client. Local stdio is
 > the supported path.
 
-You can also deploy a private remote MCP server for **one** Zendesk account.
+The upstream project also supports a private remote MCP server for **one**
+Zendesk account. That profile is distinct from this fork's Cloud Run deployment.
 It is its own OAuth authorization server: web clients such as claude.ai and
 ChatGPT add it by URL and register themselves, each user signs in to Zendesk
 through it, and no shared admin key or per-client Zendesk setup is involved. Each
-release also ships a hardened, distroless container image for it
+upstream release also ships a hardened container image for it
 (`ghcr.io/fruggr/zendesk-mcp-server`), signed and attested. The full guide covers
 the image, the one redirect URL to add to your Zendesk OAuth client, the
 master secret and grant store, `--public-url` behind a reverse proxy, trusted
 clients, MCP client wiring, CORS and what stays the operator's job:
-**[docs/http-deployment.md](docs/http-deployment.md)**.
+**[upstream HTTP deployment guide](docs/http-deployment.md)**. This fork's GCP
+profile is documented in **[docs/gcp-deployment.md](docs/gcp-deployment.md)**.
 
 ## Tool surface
 
@@ -364,10 +366,10 @@ credentials and the server acts with exactly their permissions
 ([why](#what-this-server-does-not-do)).
 
 **Is it safe to run via `npx`?**
-Releases are published from CI via npm Trusted Publishing (OIDC), so each version
-carries a build provenance attestation you can verify on its
-[npm page](https://www.npmjs.com/package/@fruggr/zendesk-mcp-server). No secrets
-are ever logged by the server.
+This fork has no npm release. The upstream package is published from its CI
+using npm Trusted Publishing (OIDC); verify it on the
+[upstream npm page](https://www.npmjs.com/package/@fruggr/zendesk-mcp-server).
+No secrets are ever logged by the server.
 
 ## Contributing
 
@@ -375,9 +377,9 @@ Pull requests are welcome, AI-assisted ones included, as long as the human
 author has read and validated every line. The guide, the author checklist and the
 review workflow are in **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-Versions follow [SemVer](https://semver.org/) and are released automatically from
-[Conventional Commits](https://www.conventionalcommits.org/); the history is in
-[`CHANGELOG.md`](CHANGELOG.md).
+Fork releases use reviewed `fork-v*` tags and do not publish to npm or the MCP
+Registry. See [fork releases](docs/fork-releases.md); the checked-in changelog
+is the upstream baseline history.
 
 ## Inspiration & related projects
 
@@ -392,4 +394,4 @@ This project was built with reference to:
 
 ---
 
-> Built and maintained by [Digital4better](https://digital4better.com) for the [Fruggr](https://www.fruggr.io) project.
+> The upstream project was built and maintained by [Digital4better](https://digital4better.com) for [Fruggr](https://www.fruggr.io). This independent fork is maintained at [tuky/zendesk-mcp-server](https://github.com/tuky/zendesk-mcp-server).

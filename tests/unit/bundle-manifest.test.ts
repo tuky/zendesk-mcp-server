@@ -66,7 +66,7 @@ describe('renderNotices', () => {
 });
 
 describe('renderSbom', () => {
-  const ROOT = { name: '@fruggr/zendesk-mcp-server', version: '3.0.2' };
+  const ROOT = { name: '@tuky/zendesk-mcp-server', version: '3.5.0' };
   const serialOf = (root: typeof ROOT, packages: typeof PACKAGES): string =>
     JSON.parse(renderSbom(root, packages)).serialNumber;
 
@@ -78,13 +78,13 @@ describe('renderSbom', () => {
       /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
     expect(serialOf(ROOT, PACKAGES)).toBe(serial);
-    expect(serialOf({ ...ROOT, version: '3.0.3' }, PACKAGES)).not.toBe(serial);
+    expect(serialOf({ ...ROOT, version: '3.5.1' }, PACKAGES)).not.toBe(serial);
     expect(serialOf(ROOT, PACKAGES.slice(1))).not.toBe(serial);
   });
 
   it('describes the bundled packages as a CycloneDX document, without volatile fields', () => {
     const sbom = JSON.parse(
-      renderSbom({ name: '@fruggr/zendesk-mcp-server', version: '3.0.2' }, PACKAGES),
+      renderSbom({ name: '@tuky/zendesk-mcp-server', version: '3.5.0' }, PACKAGES),
     );
     expect(sbom).toMatchInlineSnapshot(`
       {
@@ -131,14 +131,14 @@ describe('renderSbom', () => {
         ],
         "metadata": {
           "component": {
-            "bom-ref": "pkg:npm/%40fruggr/zendesk-mcp-server@3.0.2",
-            "name": "@fruggr/zendesk-mcp-server",
-            "purl": "pkg:npm/%40fruggr/zendesk-mcp-server@3.0.2",
+            "bom-ref": "pkg:npm/%40tuky/zendesk-mcp-server@3.5.0",
+            "name": "@tuky/zendesk-mcp-server",
+            "purl": "pkg:npm/%40tuky/zendesk-mcp-server@3.5.0",
             "type": "application",
-            "version": "3.0.2",
+            "version": "3.5.0",
           },
         },
-        "serialNumber": "urn:uuid:6f99c62f-9891-561c-b883-434d4960130c",
+        "serialNumber": "urn:uuid:9a110d6c-05a4-5360-b18a-fa8edcf6c24c",
         "specVersion": "1.6",
         "version": 1,
       }

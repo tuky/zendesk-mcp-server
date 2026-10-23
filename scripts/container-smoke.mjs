@@ -110,7 +110,7 @@ check(
   missing.status !== 0 &&
     missing.stderr.includes('Set OAUTH_MASTER_SECRET') &&
     // The whole message ends on the docs link, on the line it starts.
-    /^Cannot write .* See https:\/\/github\.com\/fruggr\/zendesk-mcp-server\/blob\/main\/docs\/http-deployment\.md#master-secret-and-grant-store$/m.test(
+    /^Cannot write .* See https:\/\/github\.com\/tuky\/zendesk-mcp-server\/blob\/main\/docs\/http-deployment\.md#master-secret-and-grant-store$/m.test(
       missing.stderr,
     ) &&
     !/^\s+at /m.test(missing.stderr),

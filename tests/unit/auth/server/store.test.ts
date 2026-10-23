@@ -317,6 +317,17 @@ describe('createSharedAdapterFactory', () => {
     );
   });
 
+  it('expires revocation tombstones after 90 days', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const { entries, adapterFor } = setup();
+      await adapterFor('RefreshToken').revokeByGrantId('grant-id');
+      expect([...entries.values()].map(({ exp }) => exp)).toEqual([NOW + 90 * 86400 * 1000]);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it('stores payloads and uid indexes transactionally in the shared backend', async () => {
     const { store, entries, adapterFor } = setup();
     const adapter = adapterFor('Client');

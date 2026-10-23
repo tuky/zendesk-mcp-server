@@ -225,10 +225,10 @@ describe('createSharedZendeskGrants', () => {
     });
     await grants.save('racing', EXPIRED);
 
-    await expect(grants.accessToken('racing')).rejects.toHaveProperty(
-      'name',
-      'ZendeskGrantUnavailable',
-    );
+    await expect(grants.accessToken('racing')).rejects.toMatchObject({
+      name: 'ZendeskGrantUnavailable',
+      cause: { name: 'ZendeskGrantUnavailable' },
+    });
     expect(await records(store).get('racing')).toBeUndefined();
   });
 
